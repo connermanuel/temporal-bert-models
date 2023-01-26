@@ -1,0 +1,3 @@
+# Remove local copies of data
+data/*
+models/*
