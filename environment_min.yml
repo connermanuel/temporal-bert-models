@@ -1,0 +1,22 @@
+name: nlp_urap
+channels:
+  - pytorch
+  - huggingface
+  - nvidia
+  - conda-forge
+dependencies:
+  - cuda=11.7.1=0
+  - cuda-toolkit=11.7.1=0
+  - datasets=2.8.0=py_0
+  - jupyter=1.0.0=py38haa244fe_8
+  - numpy=1.24.1=py38h90ce339_0
+  - pip=22.3.1=pyhd8ed1ab_0
+  - python=3.8.15=h4de0772_0_cpython
+  - pytorch=1.13.1=py3.8_cuda11.7_cudnn8_0
+  - pytorch-cuda=11.7=h67b0de4_1
+  - tokenizers=0.13.0.dev0=py38_0
+  - transformers=4.26.0=py_0
+  - pip:
+    - torchaudio==0.13.1
+    - torchvision==0.14.1
+prefix: D:\mambaforge\envs\nlp_urap
