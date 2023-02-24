@@ -25,7 +25,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
         attention_mask=None,
         head_mask=None,
         encoder_hidden_states=None,
-        encoder_temporal_embeddings=None,
         encoder_attention_mask=None,
         output_attentions=False,
         use_tempo=True,
@@ -58,19 +57,16 @@ class BertTemporalSelfAttention(BertSelfAttention):
             attention_scores = torch.matmul(
                 query_layer, time_layer.transpose(-1, -2)
             ).matmul(time_layer_normalized)
-            attention_scores = torch.matmul(attention_scores, key_layer.transpose(-1, -2))
+            try:
+                attention_scores = torch.matmul(attention_scores, key_layer.transpose(-1, -2))
+            except RuntimeError:
+                print(attention_scores.shape)
+                print(key_layer.transpose(-1, 2).shape)
+                raise
         else:
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         if attention_fname:
             joblib.dump(attention_scores, attention_fname)
-
-        # #### ORIGINAL CODE
-        # time_augment = torch.matmul(time_layer.transpose(-1, -2), time_layer)
-        # time_augment_norm = torch.linalg.matrix_norm(time_layer)[(..., None, None)]
-        # time_augment = time_augment / time_augment_norm
-        # augmented_query_layer = torch.matmul(query_layer, time_augment)
-        # attention_scores = torch.matmul(augmented_query_layer, key_layer.transpose(-1, -2))
-
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
@@ -360,9 +356,10 @@ class BertTemporalModel(BertModel):
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
+        if torch.max(input_ids) >= self.embeddings.word_embeddings.weight.shape[0]:
+            raise ValueError(f"max of input ids is {torch.max(input_ids)} but emb len is {self.embeddings.word_embeddings.weight.shape[0]}!")
         embedding_output = self.embeddings(
-            input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds
-        )
+            input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds)
 
         temporal_embeddings = self.time_embeddings(timestamps + 2)  # we add +1 so that padding maps to 0 and mask maps to 1
 
@@ -422,7 +419,7 @@ class BertForTemporalMaskedLM(BertForMaskedLM):
         attention_dir=None,
         **kwargs
     ):
-        r"""
+        """
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
             Labels for computing the masked language modeling loss. Indices should be in ``[-100, 0, ...,
             config.vocab_size]`` (see ``input_ids`` docstring) Tokens with indices set to ``-100`` are ignored
@@ -476,20 +473,3 @@ class BertForTemporalMaskedLM(BertForMaskedLM):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
-
-
-
-# class BertTemporalProgressiveEncoder(BertTemporalEncoder):
-#     def temporal_embedding_forward(self, temporal_embeddings, *args):
-#         return self.forward(temporal_embeddings, *args)
-
-# class BertTemporalProgressiveModel(BertTemporalModel):
-#     def __init__(self, config, add_pooling_layer=True, n_time_periods=2):
-#         super().__init__(config, add_pooling_layer, n_time_periods)
-#         self.encoder = BertTemporalProgressiveEncoder(config)
-
-# class BertForTemporalProgressiveMaskedLM(BertForTemporalMaskedLM):
-#     def __init__(self, config):
-#         super().__init__(config)
-#         self.bert = BertTemporalProgressiveModel(config, add_pooling_layer=False)

@@ -1,3 +1,5 @@
 # Remove local copies of data
 data/*
 models/*
+__pycache__
+run.log

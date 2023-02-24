@@ -22,6 +22,8 @@ def main(args):
     batch_size = args.batch_size
     gradient_accumulation_steps = args.grad_steps
     num_epochs = args.num_epochs
+    no_cuda = args.no_cuda
+    # fp16 = args.fp16
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(data_dir)
@@ -51,7 +53,8 @@ def main(args):
             learning_rate=lr,
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            fp16=True,
+            # fp16=fp16,
+            no_cuda=no_cuda,
             num_train_epochs=num_epochs,
             remove_unused_columns=True,
         )
@@ -85,7 +88,8 @@ def main(args):
             learning_rate=lr,
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            fp16=True,
+            # fp16=fp16,
+            no_cuda=no_cuda,
             num_train_epochs=num_epochs,
             remove_unused_columns=True,
         )
@@ -107,62 +111,44 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_base", 
         help="Whether or not to train the non-temporal BERT. Defaults to True.",
-        type=bool,
-        default=True
-    )
-
+        type=bool, default=True)
     parser.add_argument(
         "--train_tempo", 
         help="Whether or not to train temporal BERT. Defaults to True.",
-        type=bool,
-        default=True
-    )
-
+        type=bool, default=True)
     parser.add_argument(
         "--data_dir", 
-        help='Path of the huggingface dataset. Defaults to "./data/wiki_dataset".',
-        default='./data/wiki_dataset')
-    
+        help='Path of the huggingface dataset. Defaults to "./data/wiki_dataset".', default='./data/wiki_dataset')
     parser.add_argument(
         "--output_dir", 
-        help='Path to save model checkpoints to. Defaults to "./output".',
-        default='./output'
-    )
-
+        help='Path to save model checkpoints to. Defaults to "./output".', default='./output')
     parser.add_argument(
         "--lr", 
         help="Learning rate. Defaults to 1e-08.",
-        type=float,
-        default=1e-08
-    )
-
+        type=float, default=1e-08)
     parser.add_argument(
         "--batch_size", 
         help="Training batch size. Defaults to 16.",
-        type=int,
-        default=16
-    )
-
+        type=int, default=16)
     parser.add_argument(
         "--grad_steps", 
         help="Number of steps accumulated before backpropagating gradients. Defaults to 1.",
-        type=int,
-        default=1
-    )
-
+        type=int, default=1)
     parser.add_argument(
         "--num_epochs", 
         help="Number of epochs to train for. Defaults to 5.",
-        type=int,
-        default=5
-    )
-
+        type=int, default=5)
     parser.add_argument(
         "--saves_per_epoch", 
         help="How many checkpoints are saved in an epoch. Defaults to 1 (save at the end of every epoch).",
-        type=int,
-        default=1
-    )
-
+        type=int, default=1)
+    parser.add_argument(
+        "--no_cuda",
+        help="Block trainer from using cuda when available. Defaults to false (uses cuda).",
+        type=bool, default=False)
+    parser.add_argument(
+        "--fp16",
+        help="Use fp16 backend. Defaults to True.",
+        type=bool, default=True)
     args = parser.parse_args()
     main(args)
