@@ -6,16 +6,16 @@ from torch.cuda import empty_cache
 from datasets import load_from_disk
 from temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, Trainer
+from utils import add_zero_timestamp
 
 import argparse
 import logging
-from pathlib import Path
 import gc
+from pathlib import Path
 
 logging.basicConfig(filename='run.log', level=logging.DEBUG)
 
 def main(args):
-
     data_dir = args.data_dir
     output_dir = args.output_dir
     lr = args.lr
@@ -23,10 +23,14 @@ def main(args):
     gradient_accumulation_steps = args.grad_steps
     num_epochs = args.num_epochs
     no_cuda = args.no_cuda
-    # fp16 = args.fp16
+    fp16 = args.use_fp16
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(data_dir)
+    for k in dataset:
+        if 'timestamps' not in dataset[k].features:
+            logging.info(f"Adding timestamps to {k}")
+            dataset[k] = add_zero_timestamp(dataset[k])
 
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
@@ -39,7 +43,6 @@ def main(args):
     output_dir = Path(output_dir)
 
     # ## Train Temporal Model
-
     if args.train_tempo:
         logging.info(f"Initializing Tempo-BERT")
         temporal_bert_mlm = BertForTemporalMaskedLM.from_pretrained('models/temporal_bert_mlm_base')
@@ -53,7 +56,7 @@ def main(args):
             learning_rate=lr,
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            # fp16=fp16,
+            fp16=fp16,
             no_cuda=no_cuda,
             num_train_epochs=num_epochs,
             remove_unused_columns=True,
@@ -74,7 +77,6 @@ def main(args):
         empty_cache()
 
     # ## Train Non-Temporal Model
-
     if args.train_base:
         logging.info(f"Initializing BERT")
         bert_mlm = AutoModelForMaskedLM.from_pretrained('bert-base-uncased')
@@ -88,7 +90,7 @@ def main(args):
             learning_rate=lr,
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            # fp16=fp16,
+            fp16=fp16,
             no_cuda=no_cuda,
             num_train_epochs=num_epochs,
             remove_unused_columns=True,
@@ -147,8 +149,7 @@ if __name__ == "__main__":
         help="Block trainer from using cuda when available. Defaults to false (uses cuda).",
         type=bool, default=False)
     parser.add_argument(
-        "--fp16",
-        help="Use fp16 backend. Defaults to True.",
-        type=bool, default=True)
+        "--use_fp16", help="If flag is used, use the fp16 backend.",
+        action='store_true')
     args = parser.parse_args()
     main(args)
