@@ -5,4 +5,4 @@ def add_zero_timestamp(dataset):
     def helper(examples):
         examples['timestamps'] = torch.zeros((len(examples['input_ids']), len(examples['input_ids'][0])), dtype=int)
         return examples
-    return helper(dataset)
+    return dataset.map(helper, batched=True)
