@@ -109,15 +109,15 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Finetune both non-temporal and temporal BERT models on a training set.")
-
-    parser.add_argument(
-        "--train_base", 
-        help="Whether or not to train the non-temporal BERT. Defaults to True.",
-        type=bool, default=True)
-    parser.add_argument(
-        "--train_tempo", 
-        help="Whether or not to train temporal BERT. Defaults to True.",
-        type=bool, default=True)
+    
+    parser.add_argument('--train_base', dest='train_base', action='store_true')
+    parser.add_argument('--skip_base', dest='train_base', action='store_false')
+    parser.set_defaults(train_base=True)
+    
+    parser.add_argument('--train_tempo', dest='train_tempo', action='store_true')
+    parser.add_argument('--skip_tempo', dest='train_tempo', action='store_false')
+    parser.set_defaults(train_tempo=True)
+    
     parser.add_argument(
         "--data_dir", 
         help='Path of the huggingface dataset. Defaults to "./data/wiki_dataset".', default='./data/wiki_dataset')
