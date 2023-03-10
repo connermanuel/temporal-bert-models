@@ -270,12 +270,12 @@ class BertTemporalEncoder(BertEncoder):
 
 
 class BertTemporalModel(BertModel):
-    def __init__(self, config, add_pooling_layer=True, n_time_periods=2):
+    def __init__(self, config, add_pooling_layer=True, n_contexts=2):
         super().__init__(config, add_pooling_layer)
 
         self.encoder = BertTemporalEncoder(config)
-        self.time_embeddings = nn.Embedding(2 + n_time_periods, config.hidden_size)
-        self.n_time_periods = n_time_periods
+        self.time_embeddings = nn.Embedding(2 + n_contexts, config.hidden_size)
+        self.n_time_periods = n_contexts
 
         self.init_weights()
     
@@ -392,12 +392,9 @@ class BertTemporalModel(BertModel):
 
 
 class BertForTemporalMaskedLM(BertForMaskedLM):
-
-    def __init__(self, config):
+    def __init__(self, config, n_contexts=2):
         super().__init__(config)
-
-        self.bert = BertTemporalModel(config, add_pooling_layer=False)
-
+        self.bert = BertTemporalModel(config, n_contexts=n_contexts, add_pooling_layer=False)
         self.init_weights()
 
     def forward(
