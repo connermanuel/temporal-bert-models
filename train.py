@@ -13,6 +13,7 @@ import logging
 import gc
 import os
 from pathlib import Path
+from utils import get_time_token_collator
 
 logging.basicConfig(filename='run.log', level=logging.DEBUG)
 
@@ -58,6 +59,8 @@ def main(args):
 
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
+    if args.use_time_token_collator:
+        collator = get_time_token_collator(bert_tokenizer)
 
     logging.info(f"Initializing model")
     model = initialize_model(args.model_architecture, args.n_contexts)
@@ -136,6 +139,9 @@ if __name__ == "__main__":
         type=bool, default=False)
     parser.add_argument(
         "--use_fp16", help="If flag is used, use the fp16 backend.",
+        action='store_true')
+    parser.add_argument(
+        "--time_tokens", help="Indicates that the dataset has prepeneded time tokens.",
         action='store_true')
     
     args = parser.parse_args()
