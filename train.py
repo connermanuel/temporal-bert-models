@@ -59,7 +59,7 @@ def main(args):
 
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
-    if args.use_time_token_collator:
+    if args.use_time_tokens:
         collator = get_time_token_collator(bert_tokenizer)
 
     logging.info(f"Initializing model")
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--model_architecture",
         help="The model architecture to train",
-        choices=["bert", "tempo_bert", "orthogonal"])
+        choices=["bert", "tempo_bert", "orthogonal"], required=True)
     parser.add_argument(
         "--data_dir", 
         help='Path of the huggingface dataset. Defaults to "./data/news_crawl_processed".', default="./data/news_crawl_processed")
@@ -141,7 +141,7 @@ if __name__ == "__main__":
         "--use_fp16", help="If flag is used, use the fp16 backend.",
         action='store_true')
     parser.add_argument(
-        "--time_tokens", help="Indicates that the dataset has prepeneded time tokens.",
+        "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens.",
         action='store_true')
     
     args = parser.parse_args()
