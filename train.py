@@ -46,6 +46,9 @@ def main(args):
         args.output_dir = f"./output/{args.model_architecture}/lr-{args.lr}"
         if args.model_architecture == "orthogonal":
             args.output_dir = f"{args.output_dir}_alpha-{args.alpha}"
+    
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     logging.basicConfig(
         filename = f"{args.output_dir}/run.log",
