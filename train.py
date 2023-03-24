@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 from utils import get_time_token_collator
 
-logging.basicConfig(filename='run.log', level=logging.DEBUG)
 
 def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
     """Copy the weights from the source model to the destination model."""
@@ -47,6 +46,12 @@ def main(args):
         args.output_dir = f"./output/{args.model_architecture}/lr-{args.lr}"
         if args.model_architecture == "orthogonal":
             args.output_dir = f"{args.output_dir}_alpha-{args.alpha}"
+
+    logging.basicConfig(
+        filename = f"{args.output_dir}/run.log",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt='%Y-%m-%d %H:%M:%S')
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
