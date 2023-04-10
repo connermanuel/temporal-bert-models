@@ -4,7 +4,7 @@ Finetune both bert-base-uncased and tempobert initialized to bert-base-uncased u
 """
 from torch.cuda import empty_cache
 from datasets import load_from_disk
-from temporal_self_attention import BertForTemporalMaskedLM
+from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, Trainer
 from utils import add_zero_timestamp
 
