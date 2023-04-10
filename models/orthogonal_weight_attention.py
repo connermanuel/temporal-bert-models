@@ -46,21 +46,24 @@ class BertTemporalSelfAttention(BertSelfAttention):
         Multiply rows of the input matrix with the corresponding time layers.
 
         Input:
-            original_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)
+            original_layer: tensor of shape (batch_size, seq_len, attention_full_size)
             time_layers: Nested module list of shape (num_timestamps, num_attention_heads), each module is a linear layer
             timestamps: tensor of shape (batch_size, seq_len)
-            device: device to return to
         Output:
             temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)        
         """
         device = original_layer.device
+
+        original_layer = self.transpose_for_scores(original_layer) # Reshape to (batch_size, num_attention_heads, seq_len, attention_head_size)
         temporal_conditioned_layer = torch.zeros(original_layer.shape, device=device)
         timestamps = timestamps + 2
+
         for val in torch.unique(timestamps):
             mask = (timestamps==val)[..., None].to(device)
             time_layer_list = time_layers[val]
             for i, time_layer in enumerate(time_layer_list):
                 temporal_conditioned_layer[:, i, :, :] += time_layer(original_layer[:, i, :, :] * mask)
+        
         return temporal_conditioned_layer
     
     def construct_time_matrix_parallel(self, original_layer, time_layers, timestamps, device):
@@ -70,10 +73,8 @@ class BertTemporalSelfAttention(BertSelfAttention):
         # Ideally, we can just stack once, store until the next update, then return.
         # See https://stackoverflow.com/questions/57929299/how-to-share-weights-between-modules-in-pytorch
         # and https://stackoverflow.com/questions/58374980/run-multiple-models-of-an-ensemble-in-parallel-with-pytorch/58389075#58389075
+        original_layer = self.transpose_for_scores(original_layer)
         raise NotImplementedError
-    
-    def naive_forward(self, *args, **kwargs):
-        return super().forward(*args, **kwargs)
     
     def forward(
         self,
@@ -99,12 +100,11 @@ class BertTemporalSelfAttention(BertSelfAttention):
             mixed_key_layer = self.key(hidden_states)
             mixed_value_layer = self.value(hidden_states)
  
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-        key_layer = self.transpose_for_scores(mixed_key_layer)
+ 
+        timed_query_layer = self.construct_time_matrix(mixed_query_layer, self.query_time_layers, timestamps)
+        timed_key_layer = self.construct_time_matrix(mixed_key_layer, self.key_time_layers, timestamps)
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
-        timed_query_layer = self.construct_time_matrix(query_layer, self.query_time_layers, timestamps)
-        timed_key_layer = self.construct_time_matrix(key_layer, self.key_time_layers, timestamps)
         
         # attention_scores = torch.matmul(timed_query_layer, timed_key_layer.transpose(-1, -2))
         attention_scores = torch.matmul(timed_key_layer, timed_query_layer.transpose(-1, -2)).transpose(-1, -2)
