@@ -84,14 +84,14 @@ class BertTemporalSelfAttention(BertSelfAttention):
             temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)        
         """
         device = original_layer.device
-        original_layer = self.tranpose_for_scores(original_layer)
+        original_layer = self.transpose_for_scores(original_layer)
         temporal_conditioned_layer = torch.zeros(original_layer.shape, device=device)        
         timestamps = timestamps + 2
 
         for val in torch.unique(timestamps):
-            mask = (timestamps==val)[..., None].to(device)
+            mask = torch.unsqueeze(timestamps==val, 1)[..., None]
             time_layer = time_layers[val]
-            temporal_conditioned_layer[mask, :, :, :] = time_layer(original_layer[mask, :, :, :])
+            temporal_conditioned_layer += (time_layer(original_layer) * mask)
         
         return temporal_conditioned_layer
     

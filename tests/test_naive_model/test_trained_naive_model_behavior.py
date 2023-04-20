@@ -4,6 +4,7 @@ import torch
 import pytest
 from datasets import load_from_disk
 from context import BertForNaiveOrthogonalMaskedLM, evaluate
+from transformers import DataCollatorForLanguageModeling, AutoTokenizer
 
 @pytest.fixture
 def trained_model():
@@ -21,8 +22,12 @@ def dataset_timestamp_0(tempo_dataset):
 def dataset_timestamp_1(tempo_dataset):
     return tempo_dataset['train'].filter(lambda x: x['timestamps'][0] == 1).remove_columns(['word_ids'])
 
+@pytest.fixture
+def default_collator():
+    return DataCollatorForLanguageModeling(AutoTokenizer.from_pretrained('bert-base-uncased'))
+
 @pytest.mark.skip(reason="true in expectation over all possible samples, but not necessarily true for every possible subset of indices")
-def test_timestamp_effect(trained_model, dataset_timestamp_0, dataset_timestamp_1):
+def test_timestamp_effect(trained_model, dataset_timestamp_0, dataset_timestamp_1, default_collator):
     """Verifies that matching sentences to the correct timestamp improves performance, in-sample."""
 
     NUM_SAMPLES = 1000
@@ -37,14 +42,14 @@ def test_timestamp_effect(trained_model, dataset_timestamp_0, dataset_timestamp_
         print(f"Iteration {i+1}")
         idxs_0 = torch.randperm(len(dataset_timestamp_0))[:NUM_SAMPLES]
         idxs_1 = torch.randperm(len(dataset_timestamp_1))[:NUM_SAMPLES]
-        metrics_0 = evaluate(trained_model, dataset_timestamp_0.select(idxs_0))
-        metrics_0_changed = evaluate(trained_model, dataset_timestamp_0_changed.select(idxs_0))
+        metrics_0 = evaluate(trained_model, dataset_timestamp_0.select(idxs_0), default_collator)
+        metrics_0_changed = evaluate(trained_model, dataset_timestamp_0_changed.select(idxs_0), default_collator)
         print(f"Correct timestamp: {metrics_0}")
         print(f"Incorrect timestamp: {metrics_0_changed}")
         # assert metrics_0['perplexity'] < metrics_0_changed['perplexity']
 
-        metrics_1 = evaluate(trained_model, dataset_timestamp_1.select(idxs_1))
-        metrics_1_changed = evaluate(trained_model, dataset_timestamp_1_changed.select(idxs_1))
+        metrics_1 = evaluate(trained_model, dataset_timestamp_1.select(idxs_1), default_collator)
+        metrics_1_changed = evaluate(trained_model, dataset_timestamp_1_changed.select(idxs_1), default_collator)
         print(f"Correct timestamp: {metrics_1}")
         print(f"Incorrect timestamp: {metrics_1_changed}")
         # assert metrics_1['perplexity'] < metrics_1_changed['perplexity']

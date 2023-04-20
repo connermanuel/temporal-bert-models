@@ -4,7 +4,8 @@ Generalized training script for various datasets and model architectures.
 import torch
 from torch.cuda import empty_cache
 from datasets import load_from_disk
-from models.orthogonal_weight_attention_naive import BertForOrthogonalMaskedLM
+from models.orthogonal_weight_attention_naive import BertForNaiveOrthogonalMaskedLM
+from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, Trainer, AutoConfig
 
@@ -28,7 +29,8 @@ def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
 def initialize_model(model_architecture: str, n_contexts: int):
     dispatch_dict = {
         "tempo_bert": BertForTemporalMaskedLM,
-        "orthogonal": BertForOrthogonalMaskedLM
+        "orthogonal": BertForOrthogonalMaskedLM,
+        "naive": BertForNaiveOrthogonalMaskedLM
     }
 
     config = AutoConfig.from_pretrained('bert-base-uncased')
@@ -106,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--model_architecture",
         help="The model architecture to train",
-        choices=["bert", "tempo_bert", "orthogonal"], required=True)
+        choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
     parser.add_argument(
         "--data_dir", 
         help='Path of the huggingface dataset. Defaults to "./data/news_crawl_processed".', default="./data/news_crawl_processed")
