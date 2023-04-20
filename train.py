@@ -26,7 +26,7 @@ def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
     dest.load_state_dict(sd)
     return dest
 
-def initialize_model(model_architecture: str, n_contexts: int):
+def initialize_model(model_architecture: str, n_contexts: int, alpha: float):
     dispatch_dict = {
         "tempo_bert": BertForTemporalMaskedLM,
         "orthogonal": BertForOrthogonalMaskedLM,
@@ -37,11 +37,13 @@ def initialize_model(model_architecture: str, n_contexts: int):
     bert_model = AutoModelForMaskedLM.from_pretrained('bert-base-uncased')
     if model_architecture == "bert":
         return bert_model
+    elif model_architecture == "tempo_bert":
+        model = BertForTemporalMaskedLM(config=config, n_contexts=n_contexts)
     else:
         ModelClass = dispatch_dict[model_architecture]
-        model = ModelClass(config=config, n_contexts=n_contexts)
-        model = copy_weights(bert_model, model)
-        return model
+        model = ModelClass(config=config, n_contexts=n_contexts, alpha=alpha)
+    model = copy_weights(bert_model, model)
+    return model
 
 def main(args):
     if args.output_dir is None:
@@ -68,7 +70,7 @@ def main(args):
         save_steps = len(dataset['train']) // (args.batch_size * args.saves_per_epoch)
     
     logging.info(f"Initializing model")
-    model = initialize_model(args.model_architecture, args.n_contexts)
+    model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
