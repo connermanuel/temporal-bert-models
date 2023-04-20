@@ -3,11 +3,11 @@
 import torch
 import pytest
 from datasets import load_from_disk
-from context import BertForOrthogonalMaskedLM, evaluate
+from context import BertForNaiveOrthogonalMaskedLM, evaluate
 
 @pytest.fixture
 def trained_model():
-    return BertForOrthogonalMaskedLM.from_pretrained('./output/default_1e-5/checkpoint-24030')
+    return BertForNaiveOrthogonalMaskedLM.from_pretrained('./output/default_1e-5/checkpoint-24030')
 
 @pytest.fixture
 def tempo_dataset():
@@ -48,5 +48,3 @@ def test_timestamp_effect(trained_model, dataset_timestamp_0, dataset_timestamp_
         print(f"Correct timestamp: {metrics_1}")
         print(f"Incorrect timestamp: {metrics_1_changed}")
         # assert metrics_1['perplexity'] < metrics_1_changed['perplexity']
-
-

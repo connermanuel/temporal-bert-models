@@ -4,7 +4,7 @@ Generalized training script for various datasets and model architectures.
 import torch
 from torch.cuda import empty_cache
 from datasets import load_from_disk
-from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
+from models.orthogonal_weight_attention_naive import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, Trainer, AutoConfig
 

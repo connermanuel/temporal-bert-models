@@ -3,7 +3,7 @@
 import pytest
 import torch
 from transformers import BertForMaskedLM, BertConfig
-from context import BertForOrthogonalMaskedLM
+from context import BertForNaiveOrthogonalMaskedLM
 
 @pytest.fixture
 def bert_config():
@@ -20,7 +20,7 @@ def create_orthogonal_model(base_bert_model, bert_config):
     bert_sd = base_bert_model.state_dict()
 
     def _create_model(init_temporal_weights):
-        model = BertForOrthogonalMaskedLM(bert_config, init_temporal_weights=init_temporal_weights)
+        model = BertForNaiveOrthogonalMaskedLM(bert_config, init_temporal_weights=init_temporal_weights)
         sd = model.state_dict()
         for k in bert_sd.keys():
             sd[k] = bert_sd[k]

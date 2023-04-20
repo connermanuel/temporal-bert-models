@@ -1,11 +1,6 @@
 """
-Implements a modification of the self-attention layer that interweaves temporal context using orthogonal layers.
-Uses a custom parallel batch linear layer to speed up computation.
+Multiplies the temporal attention layer first, before splitting into heads.
 Based on the Huggingface transformers library, using BertSelfAttention as a superclass.
-
-TODO: Reconstruct using base models instead of reusing BertSelfAttention as superclass. See https://huggingface.co/docs/transformers/v4.26.1/en/philosophy
-HF modeling utils: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
-HF modeling bert: https://github.com/huggingface/transformers/blob/main/src/transformers/models/bert/modeling_bert.py
 """
 
 from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertEmbeddings, BertModel, BertForMaskedLM
@@ -21,56 +16,26 @@ import math
 import warnings
 from typing import Optional, Tuple
 
-class MultiHeadLinear(nn.Module):
-    """
-    Applies a batched linear transformation to incoming data. For each batch, compute `y = xA^T + b`.
-    
-    Expects an input of size (batch_size, num_heads, seq_len, in_features).
-    Returns an output of size (batch_size, num_heads, seq_len, out_features).
-    """
-    def __init__(self, num_heads: int, in_features: int, out_features: int, 
-                 bias: bool=True, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = nn.Parameter(torch.empty((num_heads, in_features, out_features), **factory_kwargs))
-        if bias:
-            self.bias = nn.Parameter(torch.empty((num_heads, 1, out_features), **factory_kwargs))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            nn.init.uniform_(self.bias, -bound, bound)
-    
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        out = torch.matmul(input, self.weight)
-        if self.bias is not None:
-            out = out + self.bias
-        return out
-
 class BertTemporalSelfAttention(BertSelfAttention):
     def __init__(self, config, n_contexts=2):
-        # TODO: add n_timestamps to config, instead of directly as a kwarg
+        # TODO: add n_timestamps to config
         self.n_contexts = n_contexts
         super().__init__(config)
         self.query_time_layers = nn.ModuleList([
-            orthogonal(MultiHeadLinear(self.num_attention_heads, self.attention_head_size, self.attention_head_size, bias=False))
-        for _ in range (self.n_contexts + 2)])
+                orthogonal(nn.Linear(self.all_head_size, self.all_head_size, bias=False))
+            for _ in range(self.n_contexts + 2)])
         self.key_time_layers = nn.ModuleList([
-            orthogonal(MultiHeadLinear(self.num_attention_heads, self.attention_head_size, self.attention_head_size, bias=False))
-        for _ in range (self.n_contexts + 2)])
+                orthogonal(nn.Linear(self.all_head_size, self.all_head_size, bias=False))
+            for _ in range(self.n_contexts + 2)])
     
     def init_temporal_weights(self):
-        """Initializes all of the orthogonal layers to have the same weights, since O @ O^T = I."""
         for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
-            query_layer.load_state_dict(self.query_time_layers[0].state_dict())
-            key_layer.load_state_dict(query_layer.state_dict())
+            weight_tensor = torch.eye(self.all_head_size, self.all_head_size) +\
+                torch.normal(mean=0, std=0.0001, size=(self.all_head_size, self.all_head_size))
+            for layer in [query_layer, key_layer]:
+                state_dict = layer.state_dict()
+                state_dict['weight'] = weight_tensor
+                layer.load_state_dict(state_dict)
 
     def construct_time_matrix(self, original_layer: torch.Tensor, time_layers: nn.ModuleList, timestamps: torch.tensor):
         """
@@ -83,16 +48,17 @@ class BertTemporalSelfAttention(BertSelfAttention):
         Output:
             temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)        
         """
+        
         device = original_layer.device
-        original_layer = self.tranpose_for_scores(original_layer)
         temporal_conditioned_layer = torch.zeros(original_layer.shape, device=device)        
         timestamps = timestamps + 2
 
         for val in torch.unique(timestamps):
             mask = (timestamps==val)[..., None].to(device)
             time_layer = time_layers[val]
-            temporal_conditioned_layer[mask, :, :, :] = time_layer(original_layer[mask, :, :, :])
-        
+            temporal_conditioned_layer[mask, :, :] = time_layer(original_layer[mask, :, :])
+
+        temporal_conditioned_layer = self.transpose_for_scores(temporal_conditioned_layer)
         return temporal_conditioned_layer
     
     def forward(
@@ -109,7 +75,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
         
         # TODO: change device to be passed in as an arg
         # TODO: implement compatibility for temporal seq2seq decoding
-
         mixed_query_layer = self.query(hidden_states)
 
         if encoder_hidden_states is not None:
@@ -123,12 +88,14 @@ class BertTemporalSelfAttention(BertSelfAttention):
         timed_query_layer = self.construct_time_matrix(mixed_query_layer, self.query_time_layers, timestamps)
         timed_key_layer = self.construct_time_matrix(mixed_key_layer, self.key_time_layers, timestamps)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-
-        attention_scores = torch.matmul(timed_query_layer, timed_key_layer.transpose(-1, -2))
+        
+        # attention_scores = torch.matmul(timed_query_layer, timed_key_layer.transpose(-1, -2))
+        attention_scores = torch.matmul(timed_key_layer, timed_query_layer.transpose(-1, -2)).transpose(-1, -2)
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
+        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         attention_probs = self.dropout(attention_probs)
 
@@ -143,10 +110,10 @@ class BertTemporalSelfAttention(BertSelfAttention):
         return outputs
     
     def get_temporal_layer_weights(self):
-        weights = []
-        for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
-            out = (query_layer.weight, key_layer.weight)
-            weights.append(out)
+        weights = (
+            [query_layer.weight for query_layer in self.query_time_layers] +
+            [key_layer.weight for key_layer in self.key_time_layers]
+        )
         return weights
 
 class BertTemporalAttention(BertAttention):
@@ -494,10 +461,10 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()  # -100 index = padding token
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
-            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
+            if self.alpha != 0 and self.training:
                 layer_weights = self.bert.get_temporal_layer_weights()
-                for query_weight, key_weight in layer_weights:
-                    masked_lm_loss += self.alpha * F.mse_loss(query_weight, key_weight)
+                eye = torch.eye(self.all_head_size)
+                masked_lm_loss += self.alpha * sum([F.mse_loss(weight, eye) for weight in layer_weights])
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
