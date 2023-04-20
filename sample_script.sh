@@ -1,5 +1,15 @@
 # Our other baseline is zero-shot pretrained BERT -- no need for further training
-python train.py -m bert --data_dir data/tempo_dataset # Finetuned baseline
-python train.py -m bert --data_dir data/tempo_dataset_time_token --use_time_token --output_dir outputs/bert_time_token --batch_size 8 # Prepends a time token, finetunes vanilla bert
-python train.py -m tempo_bert --data_dir data/tempo_dataset # Finetunes tempobert
-python train.py -m orthogonal --data_dir data/tempo_dataset # Finetunes our implementation
+python train.py -m bert --data_dir data/tempo_dataset --output_dir outputs/bert --use_fp16 # Finetuned baseline
+
+python train.py -m bert --data_dir data/tempo_dataset_time_token --use_time_token string --output_dir outputs/bert_time_token --batch_size 8 --use_fp16  # Prepends a time token, finetunes vanilla bert
+python train.py -m bert --data_dir data/tempo_dataset_time_special_token --use_time_token special --output_dir outputs/bert_time__special_token --batch_size 8 --use_fp16 # Prepends a special time token, finetunes vanilla bert
+
+python train.py -m tempo_bert --data_dir data/tempo_dataset --output_dir outputs/tempo_bert --use_fp16 # Finetunes tempobert
+
+# Finetunes our implementation with differenta alphas
+python train.py -m orthogonal --data_dir data/tempo_dataset --output_dir outputs/orthogonal_1 --use_fp16
+python train.py -m orthogonal --data_dir data/tempo_dataset --alpha 10 --output_dir outputs/orthogonal_10 --use_fp16
+python train.py -m orthogonal --data_dir data/tempo_dataset --alpha 100 --output_dir outputs/orthogonal_10 --use_fp16
+python train.py -m orthogonal --data_dir data/tempo_dataset --alpha 0.1 --output_dir outputs/orthogonal_0.1 --use_fp16
+python train.py -m orthogonal --data_dir data/tempo_dataset --alpha 0.01 --output_dir outputs/orthogonal_0.01 --use_fp16
+python train.py -m orthogonal --data_dir data/tempo_dataset --alpha 0 --output_dir outputs/orthogonal_0 --use_fp16

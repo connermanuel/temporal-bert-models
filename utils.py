@@ -13,7 +13,7 @@ def add_zero_timestamp(dataset):
         return examples
     return dataset.map(helper, batched=True)
 
-def get_time_token_collator(tokenizer):
+def get_time_token_collator(tokenizer, n_tokens=8):
     wwm_probability = 0.15
 
     def time_token_collator(features):
@@ -21,12 +21,12 @@ def get_time_token_collator(tokenizer):
         for feature in features:
             # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
             # feature.pop('word_ids')
-            mask = torch.rand((len(feature["input_ids"]) - 9)) < wwm_probability
+            mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
             input_ids = torch.tensor(feature["input_ids"], requires_grad=False)
             new_labels = torch.full(input_ids.shape, -100)
 
             # When selecting the indices of words to mask, only start at index 8
-            masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + 8
+            masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + n_tokens
             new_labels[masked_idxs] = input_ids[masked_idxs]
             feature["labels"] = new_labels
             

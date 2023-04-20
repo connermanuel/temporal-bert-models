@@ -66,14 +66,22 @@ def main(args):
     if args.saves_per_epoch > 1:
         save_strategy = 'steps'
         save_steps = len(dataset['train']) // (args.batch_size * args.saves_per_epoch)
-
-    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    collator = DataCollatorForLanguageModeling(bert_tokenizer)
-    if args.use_time_tokens:
-        collator = get_time_token_collator(bert_tokenizer)
-
+    
     logging.info(f"Initializing model")
     model = initialize_model(args.model_architecture, args.n_contexts)
+    
+    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    collator = DataCollatorForLanguageModeling(bert_tokenizer)
+    if args.use_time_tokens == "string":
+        collator = get_time_token_collator(bert_tokenizer)
+    elif args.use_time_tokens == "special":
+        year_tokens = [
+            "years: 1810-1860 text: ",
+            "years: 1960-2010 text: ",
+        ]
+        bert_tokenizer.add_tokens(year_tokens)
+        model.resize_token_embeddings(len(bert_tokenizer))
+        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
 
     train_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -151,8 +159,8 @@ if __name__ == "__main__":
         "--use_fp16", help="If flag is used, use the fp16 backend.",
         action='store_true')
     parser.add_argument(
-        "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens.",
-        action='store_true')
+        "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
+        choices=[None, "string", "special"], default=None)
     
     args = parser.parse_args()
     main(args)
