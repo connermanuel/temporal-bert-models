@@ -1,9 +1,0 @@
-# Remove local copies of data
-data/*
-output*
-__pycache__
-run.log
-
-# Remove stuff that I used for local experimentation lol
-playground.ipynb
-.ipynb_checkpoints
