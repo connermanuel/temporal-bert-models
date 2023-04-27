@@ -62,6 +62,9 @@ def main(args):
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
+    if args.sample :
+        dataset['train'] = dataset['train'][:10]
+        dataset['test'] = dataset['test'][:10]
 
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
@@ -120,14 +123,14 @@ if __name__ == "__main__":
         help="The model architecture to train",
         choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
     parser.add_argument(
-        "--data_dir", 
+        "--data-dir", 
         help='Path of the huggingface dataset. Defaults to "./data/news_crawl_processed".', default="./data/news_crawl_processed")
     parser.add_argument(
-        "--n_contexts", 
+        "--n-contexts", 
         help='Number of contexts/timestamps. Defaults to 2, the number of timestamps in the SemEval dataset.', 
         type=int, default=2)
     parser.add_argument(
-        "--output_dir", 
+        "--output-dir", 
         help='Path to save model checkpoints to. Defaults to "./output/{architecture}/{learning_rate}".', default=None)
     parser.add_argument(
         "--lr", 
@@ -138,31 +141,34 @@ if __name__ == "__main__":
         help="Regularization parameter. Defaults to 1. Only used for orthogonal model.",
         type=float, default=1)
     parser.add_argument(
-        "--batch_size", 
+        "--batch-size", 
         help="Training batch size. Defaults to 16.",
         type=int, default=16)
     parser.add_argument(
-        "--grad_steps", 
+        "--grad-steps", 
         help="Number of steps accumulated before backpropagating gradients. Defaults to 1.",
         type=int, default=1)
     parser.add_argument(
-        "--num_epochs", 
+        "--num-epochs", 
         help="Number of epochs to train for. Defaults to 10.",
         type=int, default=10)
     parser.add_argument(
-        "--saves_per_epoch", 
+        "--saves-per-epoch", 
         help="How many checkpoints are saved in an epoch. Defaults to 5.",
         type=int, default=5)
     parser.add_argument(
-        "--no_cuda",
+        "--no-cuda",
         help="Block trainer from using cuda when available. Defaults to false (uses cuda).",
         type=bool, default=False)
     parser.add_argument(
-        "--use_fp16", help="If flag is used, use the fp16 backend.",
+        "--use-fp16", help="If flag is used, use the fp16 backend.",
         action='store_true')
     parser.add_argument(
         "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
         choices=[None, "none", "string", "special"], default=None)
+    parser.add_argument(
+        "--sample", "Indicates that we should only use a small sample of the data.",
+        action='store_true')
     
     args = parser.parse_args()
     main(args)
