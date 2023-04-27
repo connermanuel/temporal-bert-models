@@ -70,7 +70,7 @@ def main(args):
     save_steps = len(dataset['train'])
     if args.saves_per_epoch > 1:
         save_strategy = 'steps'
-        save_steps = len(dataset['train']) // (args.batch_size * args.saves_per_epoch)
+        save_steps = max(len(dataset['train']) // (args.batch_size * args.saves_per_epoch), 1)
     
     logging.info(f"Initializing model")
     model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
