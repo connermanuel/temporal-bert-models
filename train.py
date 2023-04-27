@@ -162,7 +162,7 @@ if __name__ == "__main__":
         action='store_true')
     parser.add_argument(
         "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
-        choices=[None, "string", "special"], default=None)
+        choices=[None, "none", "string", "special"], default=None)
     
     args = parser.parse_args()
     main(args)
