@@ -63,8 +63,8 @@ def main(args):
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
     if args.sample :
-        dataset['train'] = dataset['train'][:10]
-        dataset['test'] = dataset['test'][:10]
+        dataset['train'] = dataset['train'].select(range(10))
+        dataset['test'] = dataset['test'].select(range(10))
 
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
