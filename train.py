@@ -112,6 +112,7 @@ def main(args):
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
     trainer.train()
+    logging.info(f"Now training for {args.num_epochs} epochs.")
 
     gc.collect()
     empty_cache()
@@ -167,7 +168,7 @@ if __name__ == "__main__":
         "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
         choices=[None, "none", "string", "special"], default=None)
     parser.add_argument(
-        "--sample", "Indicates that we should only use a small sample of the data.",
+        "--sample", help="Indicates that we should only use a small sample of the data.",
         action='store_true')
     
     args = parser.parse_args()
