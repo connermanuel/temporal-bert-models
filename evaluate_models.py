@@ -27,6 +27,21 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
     return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
 
 def main(args):
+    model_str = f"{args.model_architecture}"
+    if args.model_architecture == "orthogonal":
+        model_str = f"{args.model_architecture}_{args.alpha}"
+    if args.checkpoint_dir is None:
+        args.checkpoint_dir = f"outputs/{model_str}"
+    if args.results_dir is None:
+        args.results_dir = f"results/{model_str}"
+    
+    if not os.exists(args.checkpoint_dir):
+        raise ValueError("Checkpoint directory does not exist")
+    if not os.exists(args.data_dir):
+        raise ValueError("Data directory does not exist")
+    if not os.exists(args.results_dir):
+        os.makedirs(args.results_dir)
+
     logging.basicConfig(
         filename = f"{args.results_dir}/run.log",
         format="%(asctime)s %(levelname)-8s %(message)s",
@@ -39,13 +54,7 @@ def main(args):
         dataset['train'] = dataset['train'].select(range(10))
         dataset['test'] = dataset['test'].select(range(10))
     
-    model_str = f"{args.model_architecture}"
-    if args.model_architecture == "orthogonal":
-        model_str = f"{args.model_architecture}_{args.alpha}"
-    if args.checkpoint_dir is None:
-        args.checkpoint_dir = f"outputs/{model_str}"
-    if args.results_dir is None:
-        args.results_dir = f"results/{model_str}"
+    
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
