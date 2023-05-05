@@ -28,7 +28,7 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
 
 def main(args):
     logging.basicConfig(
-        filename = f"{args.output_dir}/run.log",
+        filename = f"{args.results_dir}/run.log",
         format="%(asctime)s %(levelname)-8s %(message)s",
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')

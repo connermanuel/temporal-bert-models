@@ -1,6 +1,7 @@
 # Remove local copies of data
 data/*
 output*
+results/*
 __pycache__
 run.log
 
