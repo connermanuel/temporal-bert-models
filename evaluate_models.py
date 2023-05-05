@@ -106,6 +106,10 @@ if __name__ == "__main__":
         "--results-dir", 
         help='Path to directory to store checkpoints to. Defaults to "results/{architecture}".', default=None)
     parser.add_argument(
+        "--alpha", 
+        help="Regularization parameter. Defaults to 1. Only used for orthogonal model.",
+        type=float, default=1)
+    parser.add_argument(
         "--batch-size", 
         help="Evaluation batch size. Defaults to 16.",
         type=int, default=16)
