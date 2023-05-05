@@ -35,11 +35,11 @@ def main(args):
     if args.results_dir is None:
         args.results_dir = f"results/{model_str}"
     
-    if not os.exists(args.checkpoint_dir):
+    if not os.path.exists(args.checkpoint_dir):
         raise ValueError("Checkpoint directory does not exist")
-    if not os.exists(args.data_dir):
+    if not os.path.exists(args.data_dir):
         raise ValueError("Data directory does not exist")
-    if not os.exists(args.results_dir):
+    if not os.path.exists(args.results_dir):
         os.makedirs(args.results_dir)
 
     logging.basicConfig(
