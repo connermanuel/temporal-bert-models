@@ -82,7 +82,7 @@ def main(args):
     
     logging.info(f"Evaluating models...")
     for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_dir))):
-        model = fetch_model(args.model_architecture, checkpoint_path)
+        model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/checkpoint_path")
         result = evaluate(model, dataset['test'], collator, device, args.batch_size)
         for k, v in result:
             results[k].append(v)
