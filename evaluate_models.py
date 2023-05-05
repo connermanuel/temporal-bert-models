@@ -53,7 +53,7 @@ def main(args):
     dataset = dataset['test']
     if args.sample :
         dataset = dataset.select(range(10))
-    if "word_ids" in dataset.columns:
+    if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
