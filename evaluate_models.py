@@ -51,10 +51,12 @@ def main(args):
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
     dataset = dataset['test']
-    if args.sample :
+    if args.sample:
         dataset = dataset.select(range(10))
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
+    if args.model_architecture != "orthogonal" and "timestamps" in dataset.features:
+        dataset = dataset.remove_columns("timestamps") 
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
