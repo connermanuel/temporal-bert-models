@@ -50,11 +50,11 @@ def main(args):
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
+    dataset = dataset['test']
     if args.sample :
-        dataset['train'] = dataset['train'].select(range(10))
-        dataset['test'] = dataset['test'].select(range(10))
-    
-    
+        dataset = dataset.select(range(10))
+    if "word_ids" in dataset.columns:
+        dataset = dataset.remove_columns("word_ids")
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
@@ -83,7 +83,7 @@ def main(args):
     logging.info(f"Evaluating models...")
     for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_dir))):
         model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/{checkpoint_path}")
-        result = evaluate(model, dataset['test'], collator, device, args.batch_size)
+        result = evaluate(model, dataset, collator, device, args.batch_size)
         for k, v in result:
             results[k].append(v)
     
