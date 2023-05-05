@@ -14,6 +14,7 @@ import argparse
 import os
 import logging
 import json
+import tqdm
 
 def fetch_model(model_architecture: str, checkpoint_path: str):
     dispatch_dict = {
@@ -69,7 +70,9 @@ def main(args):
     else:
         device = torch_device("cuda") 
     
-    for checkpoint_path in sorted(os.listdir(args.checkpoint_dir)):
+    
+    logging.info(f"Evaluating models...")
+    for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_dir))):
         model = fetch_model(args.model_architecture, checkpoint_path)
         result = evaluate(model, dataset['test'], collator, device, args.batch_size)
         for k, v in result:
