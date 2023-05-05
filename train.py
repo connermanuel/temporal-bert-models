@@ -1,6 +1,4 @@
-"""
-Generalized training script for various datasets and model architectures.
-"""
+"""Generalized training script for various datasets and model architectures."""
 import torch
 from torch.cuda import empty_cache
 from datasets import load_from_disk
