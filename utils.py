@@ -97,8 +97,8 @@ def evaluate(model, dataset, data_collator,
     perplexity = math.exp(total_cross_entropy / total_predictions)
     accuracy = 100 * correct_predictions / total_predictions
     mrr = total_mrr / total_predictions
-    return ({
+    return {
         'perplexity': perplexity, 
         'accuracy': accuracy, 
         'mrr': mrr,
-    })
+    }
