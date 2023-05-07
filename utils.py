@@ -20,7 +20,6 @@ def get_time_token_collator(tokenizer, n_tokens=8):
         """A data collator that skips over the first few tokens in the dataset."""
         for feature in features:
             # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
-            feature.pop('token_type_ids')
             mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
             input_ids = torch.tensor(feature["input_ids"], requires_grad=False)
             new_labels = torch.full(input_ids.shape, -100)
