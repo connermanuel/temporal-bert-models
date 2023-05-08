@@ -73,7 +73,8 @@ def main(args):
     results = {
         "perplexity": [],
         "accuracy": [],
-        "mrr": []
+        "mrr": [],
+        "paths": [],
     }
 
     if args.no_cuda:
@@ -88,6 +89,7 @@ def main(args):
         result = evaluate(model, dataset, collator, device, args.batch_size)
         for k, v in result.items():
             results[k].append(v)
+        results['paths'].append(checkpoint_path)
     
     with open(f"{args.results_dir}/results.json", "w") as f:
         json.dump(results, f) 
