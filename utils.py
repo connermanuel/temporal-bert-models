@@ -1,5 +1,5 @@
 import torch
-from transformers import BatchEncoding, AutoTokenizer, DataCollatorForLanguageModeling
+from transformers import BatchEncoding, AutoTokenizer, DataCollatorForLanguageModeling, Trainer
 from torch.nn.utils.rnn import pad_sequence
 from transformers import  BatchEncoding
 
@@ -101,3 +101,27 @@ def evaluate(model, dataset, data_collator,
         'accuracy': accuracy, 
         'mrr': mrr,
     }
+
+def sort_by_timestamp(dataset):
+    def add_timestamp(examples):
+        timestamps = examples['timestamps']
+        examples['timestamp'] = [l[0] for l in timestamps]
+        return examples
+    
+    dataset = dataset.map(add_timestamp, batched=True)
+    dataset = dataset.sort('timestamp')
+    dataset = dataset.remove_columns('timestamp')
+    return dataset
+
+def shuffle_batched(dataset, batch_size):
+    """Shuffles a dataset while keeping batches intact."""
+    num_batches = len(dataset) // batch_size
+    idxs = torch.randperm(num_batches) * batch_size
+    idxs = idxs.reshape(-1, 1) + torch.arange(batch_size)
+    idxs = torch.concat([idxs.flatten(), torch.arange(num_batches * batch_size, len(dataset))])
+    return dataset.select(idxs)
+
+class NonShuffledTrainer(Trainer):
+    """Shuffles the training dataset while keeping batches intact."""
+    def _get_train_sampler(self):
+        return None

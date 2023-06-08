@@ -6,6 +6,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - accelerate=0.20.1
   - cuda=11.7.1
   - cuda-toolkit=11.7.1
   - datasets=2.8.0
@@ -17,4 +18,4 @@ dependencies:
   - pytorch=1.13.1=py3.8_cuda11.7*
   - pytorch-cuda=11.7
   - tokenizers=0.13.0.dev0
-  - transformers=4.26.0
+  - transformers=4.29.2

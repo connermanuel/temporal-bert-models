@@ -5,14 +5,13 @@ from datasets import load_from_disk
 from models.orthogonal_weight_attention_naive import BertForNaiveOrthogonalMaskedLM
 from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
-from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, Trainer, AutoConfig
+from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, AutoConfig
 
+from utils import get_time_token_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched
 import argparse
 import logging
 import gc
 import os
-from pathlib import Path
-from utils import get_time_token_collator
 
 
 def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
@@ -44,6 +43,7 @@ def initialize_model(model_architecture: str, n_contexts: int, alpha: float):
     return model
 
 def main(args):
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if args.output_dir is None:
         args.output_dir = f"./output/{args.model_architecture}/lr-{args.lr}"
         if args.model_architecture == "orthogonal":
@@ -63,6 +63,9 @@ def main(args):
     if args.sample :
         dataset['train'] = dataset['train'].select(range(10))
         dataset['test'] = dataset['test'].select(range(10))
+    dataset = sort_by_timestamp(dataset)
+    for key in dataset.keys():
+        dataset[key] = shuffle_batched(dataset[key], args.batch_size)
 
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
@@ -94,23 +97,23 @@ def main(args):
         save_steps=save_steps,
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
+        auto_find_batch_size=args.auto_batch,
         gradient_accumulation_steps=args.grad_steps,
         fp16=args.use_fp16,
         no_cuda=args.no_cuda,
         num_train_epochs=args.num_epochs,
         remove_unused_columns=True,
     )
-    trainer = Trainer(
+    trainer = NonShuffledTrainer(
         model=model,
         args=train_args,
         train_dataset=dataset['train'],
         eval_dataset=dataset['test'],
-        data_collator=collator,
+        data_collator=collator
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
     trainer.train()
-    logging.info(f"Now training for {args.num_epochs} epochs.")
 
     gc.collect()
     empty_cache()
@@ -167,6 +170,9 @@ if __name__ == "__main__":
         choices=[None, "none", "string", "special"], default=None)
     parser.add_argument(
         "--sample", help="Indicates that we should only use a small sample of the data.",
+        action='store_true')
+    parser.add_argument(
+        "--auto-batch", help="Indicates that we should automatically find the best batch size.",
         action='store_true')
     
     args = parser.parse_args()
