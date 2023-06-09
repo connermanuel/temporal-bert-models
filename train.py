@@ -115,7 +115,8 @@ def main(args):
         args=train_args,
         train_dataset=dataset['train'],
         eval_dataset=dataset['test'],
-        data_collator=collator
+        data_collator=collator,
+        resume_from_checkpoint=args.resume
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
@@ -184,6 +185,8 @@ if __name__ == "__main__":
         action='store_true')
     parser.add_argument(
         "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
+    parser.add_argument(
+        "--resume", help="Resume training from checkpoint.", action='store_true')
     
     args = parser.parse_args()
     main(args)
