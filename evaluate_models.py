@@ -90,9 +90,9 @@ def main(args):
         for k, v in result.items():
             results[k].append(v)
         results['paths'].append(checkpoint_path)
-    
-    with open(f"{args.results_dir}/results.json", "w") as f:
-        json.dump(results, f) 
+
+        with open(f"{args.results_dir}/results.json", "w") as f:
+            json.dump(results, f) 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trains a model.")

@@ -87,20 +87,20 @@ def evaluate(model, dataset, data_collator,
               (ipt['labels'] != pad_id) &
               (ipt['labels'] == logits.argmax(2))).sum().item()
             correct_predictions += batch_correct_predictions
-            idx = torch.nonzero(ipt['labels'] != pad_id)
-            labels = ipt['labels'][idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
-            logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
-            logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
-            ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
-            total_ranks = torch.cat((total_ranks, ranks.cpu()))
-            total_mrr += (1/ranks).sum().item()
+            # idx = torch.nonzero(ipt['labels'] != pad_id)
+            # labels = ipt['labels'][idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
+            # logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
+            # logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
+            # ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
+            # total_ranks = torch.cat((total_ranks, ranks.cpu()))
+            # total_mrr += (1/ranks).sum().item()
     perplexity = math.exp(total_cross_entropy / total_predictions)
     accuracy = 100 * correct_predictions / total_predictions
-    mrr = total_mrr / total_predictions
+    # mrr = total_mrr / total_predictions
     return {
         'perplexity': perplexity, 
         'accuracy': accuracy, 
-        'mrr': mrr,
+        # 'mrr': mrr,
     }
 
 def add_timestamp(examples):
