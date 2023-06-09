@@ -7,7 +7,7 @@ from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, AutoConfig
 
-from utils import get_time_token_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched
+from utils import get_time_token_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens
 import argparse
 import logging
 import gc
@@ -57,38 +57,44 @@ def main(args):
         format="%(asctime)s %(levelname)-8s %(message)s",
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
+       
+    logging.info(f"Initializing model")
+    model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
+    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    collator = DataCollatorForLanguageModeling(bert_tokenizer)
     
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
-    if args.sample :
-        dataset['train'] = dataset['train'].select(range(10))
-        dataset['test'] = dataset['test'].select(range(10))
-    dataset = sort_by_timestamp(dataset)
-    for key in dataset.keys():
-        dataset[key] = shuffle_batched(dataset[key], args.batch_size)
-
+    if args.sample:
+        logging.info(f"Sampling {args.sample} entries")
+        for k in dataset.keys():
+            dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
+    
+    logging.info(f"Processing the dataset")
+    if args.process_dataset:
+        dataset = sort_by_timestamp(dataset)
+        for key in dataset.keys():
+            dataset[key] = shuffle_batched(dataset[key], args.batch_size)
+    if args.add_time_tokens == "string":
+        logging.info(f"Adding string time tokens")
+        ## TODO: add the time tokens
+        collator = get_time_token_collator(bert_tokenizer)
+    elif args.add_time_tokens == "special":
+        logging.info(f"Adding special time tokens")
+        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts)
+        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
+    
+    if args.save_dataset:
+        logging.info(f"Saving the dataset to {args.save_dataset}")
+        dataset.save_to_disk(args.save_dataset)
+    
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
     if args.saves_per_epoch > 1:
         save_strategy = 'steps'
         save_steps = max(len(dataset['train']) // (args.batch_size * args.saves_per_epoch), 1)
+ 
     
-    logging.info(f"Initializing model")
-    model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
-    
-    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    collator = DataCollatorForLanguageModeling(bert_tokenizer)
-    if args.use_time_tokens == "string":
-        collator = get_time_token_collator(bert_tokenizer)
-    elif args.use_time_tokens == "special":
-        year_tokens = [
-            "years: 1810-1860 text: ",
-            "years: 1960-2010 text: ",
-        ]
-        bert_tokenizer.add_tokens(year_tokens)
-        model.resize_token_embeddings(len(bert_tokenizer))
-        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
-
     train_args = TrainingArguments(
         output_dir=args.output_dir,
         overwrite_output_dir=True,
@@ -122,7 +128,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trains a model.")
     parser.add_argument(
         "-m", "--model_architecture",
-        help="The model architecture to train",
+        help="The model architecture to train.",
         choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
     parser.add_argument(
         "--data-dir", 
@@ -159,21 +165,25 @@ if __name__ == "__main__":
         help="How many checkpoints are saved in an epoch. Defaults to 5.",
         type=int, default=5)
     parser.add_argument(
-        "--no-cuda",
-        help="Block trainer from using cuda when available. Defaults to false (uses cuda).",
-        type=bool, default=False)
+        "--no-cuda", help="Block trainer from using cuda when available.",
+        action='store_true')
     parser.add_argument(
         "--use-fp16", help="If flag is used, use the fp16 backend.",
         action='store_true')
     parser.add_argument(
-        "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
+        "--add_time_tokens", help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
         choices=[None, "none", "string", "special"], default=None)
     parser.add_argument(
-        "--sample", help="Indicates that we should only use a small sample of the data.",
-        action='store_true')
+        "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
+        type=int, default=0)
     parser.add_argument(
         "--auto-batch", help="Indicates that we should automatically find the best batch size.",
         action='store_true')
+    parser.add_argument(
+        "--process-dataset", help="Indicates that the dataset should be processed (i.e. sorted and batch shuffled)",
+        action='store_true')
+    parser.add_argument(
+        "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
     
     args = parser.parse_args()
     main(args)

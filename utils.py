@@ -1,7 +1,8 @@
 import torch
 from transformers import BatchEncoding, AutoTokenizer, DataCollatorForLanguageModeling, Trainer
 from torch.nn.utils.rnn import pad_sequence
-from transformers import  BatchEncoding
+from transformers import BatchEncoding
+from datasets import Dataset
 
 import tqdm
 import math
@@ -102,12 +103,13 @@ def evaluate(model, dataset, data_collator,
         'mrr': mrr,
     }
 
-def sort_by_timestamp(dataset):
-    def add_timestamp(examples):
-        timestamps = examples['timestamps']
-        examples['timestamp'] = [l[0] for l in timestamps]
-        return examples
+def add_timestamp(examples):
+    # Only works on correctly batched tokens.
+    timestamps = torch.tensor(examples['timestamps'])
+    examples['timestamp'] = timestamps[:, 0]
+    return examples
     
+def sort_by_timestamp(dataset):
     dataset = dataset.map(add_timestamp, batched=True)
     dataset = dataset.sort('timestamp')
     dataset = dataset.remove_columns('timestamp')
@@ -125,3 +127,23 @@ class NonShuffledTrainer(Trainer):
     """Shuffles the training dataset while keeping batches intact."""
     def _get_train_sampler(self):
         return None
+
+def add_special_time_tokens(dataset, tokenizer, model, n_contexts):
+    # Only works on correctly batched tokens.
+    special_tokens = [f"timestamp: {t} text: " for t in range(n_contexts)]
+    old_tokenizer_len = len(tokenizer)
+    tokenizer.add_tokens(special_tokens)
+    model.resize_token_embeddings(len(tokenizer))
+    
+    def insert_special_token(examples):
+        for k in examples.keys():
+            examples[k] = torch.tensor(examples[k])
+        for k in examples.keys():
+            if k == "input_ids":
+                ids = examples['input_ids']
+                ts = examples['timestamps']
+                examples["input_ids"] = torch.hstack((ids[:, 0:1], (old_tokenizer_len + ts[:, 0:1]), ids[:, 1:]))
+            else:
+                examples[k] = torch.hstack((examples[k][:, 0:1], examples[k]))
+    dataset = dataset.map(insert_special_token, batched=True)
+    return dataset
