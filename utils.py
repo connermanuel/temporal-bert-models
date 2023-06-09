@@ -128,7 +128,7 @@ class NonShuffledTrainer(Trainer):
     def _get_train_sampler(self):
         return None
 
-def add_special_time_tokens(dataset, tokenizer, model, n_contexts):
+def add_special_time_tokens(dataset, tokenizer, model, n_contexts, process_dataset):
     # Only works on correctly batched tokens.
     special_tokens = [f"timestamp: {t} text: " for t in range(n_contexts)]
     old_tokenizer_len = len(tokenizer)
@@ -145,5 +145,6 @@ def add_special_time_tokens(dataset, tokenizer, model, n_contexts):
                 examples["input_ids"] = torch.hstack((ids[:, 0:1], (old_tokenizer_len + ts[:, 0:1]), ids[:, 1:]))
             else:
                 examples[k] = torch.hstack((examples[k][:, 0:1], examples[k]))
-    dataset = dataset.map(insert_special_token, batched=True)
+    if process_dataset:
+        dataset = dataset.map(insert_special_token, batched=True)
     return dataset
