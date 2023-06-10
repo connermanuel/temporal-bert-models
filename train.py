@@ -115,12 +115,11 @@ def main(args):
         args=train_args,
         train_dataset=dataset['train'],
         eval_dataset=dataset['test'],
-        data_collator=collator,
-        resume_from_checkpoint=args.resume
+        data_collator=collator
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
 
     gc.collect()
     empty_cache()
