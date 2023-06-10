@@ -81,7 +81,7 @@ def main(args):
         collator = get_time_token_collator(bert_tokenizer)
     elif args.add_time_tokens == "special":
         logging.info(f"Adding special time tokens")
-        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, args.process_datase)
+        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, args.process_dataset)
         collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
     
     if args.save_dataset:
