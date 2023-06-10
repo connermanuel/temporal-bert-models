@@ -55,7 +55,7 @@ def main(args):
         dataset = dataset.select(range(10))
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
-    if args.model_architecture != "orthogonal" and "timestamps" in dataset.features:
+    if args.model_architecture == "bert" and "timestamps" in dataset.features:
         dataset = dataset.remove_columns("timestamps") 
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
@@ -85,14 +85,19 @@ def main(args):
     
     logging.info(f"Evaluating models...")
     for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_dir))):
-        model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/{checkpoint_path}")
-        result = evaluate(model, dataset, collator, device, args.batch_size)
-        for k, v in result.items():
-            results[k].append(v)
-        results['paths'].append(checkpoint_path)
+        if checkpoint_path == "run.log":
+            continue
+        try:
+            model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/{checkpoint_path}")
+            result = evaluate(model, dataset, collator, device, args.batch_size)
+            for k, v in result.items():
+                results[k].append(v)
+            results['paths'].append(checkpoint_path)
 
-        with open(f"{args.results_dir}/results.json", "w") as f:
-            json.dump(results, f) 
+            with open(f"{args.results_dir}/results.json", "w") as f:
+                json.dump(results, f) 
+        except OSError:
+            pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trains a model.")
