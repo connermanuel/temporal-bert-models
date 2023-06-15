@@ -84,9 +84,7 @@ def main(args):
     
     
     logging.info(f"Evaluating models...")
-    for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_dir))):
-        if checkpoint_path == "run.log":
-            continue
+    def evaluate_path(checkpoint_path):
         try:
             model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/{checkpoint_path}")
             result = evaluate(model, dataset, collator, device, args.batch_size)
@@ -98,6 +96,15 @@ def main(args):
                 json.dump(results, f) 
         except OSError:
             pass
+    
+    if args.checkpoint_dir:
+        evaluate_path(args.checkpoint_dir)
+    elif args.checkpoint_group_dir:
+        for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_))):
+            if checkpoint_path == "run.log":
+                continue
+            evaluate_path(checkpoint_path)
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trains a model.")
@@ -110,7 +117,10 @@ if __name__ == "__main__":
         help="Path of the huggingface dataset.", required=True)
     parser.add_argument(
         "--checkpoint-dir", 
-        help='Path to directory to load model checkpoints from. Defaults to "output/{architecture}".', default=None)
+        help='If used, path of the huggingface checkpoint. Overrides checkpoint-group-dir.', default=None)
+    parser.add_argument(
+        "--checkpoint-group-dir", 
+        help='If used, path of directory containing huggingface checkpoints.', default=None)
     parser.add_argument(
         "--results-dir", 
         help='Path to directory to store checkpoints to. Defaults to "results/{architecture}".', default=None)
