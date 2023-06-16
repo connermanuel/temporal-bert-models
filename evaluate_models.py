@@ -8,7 +8,7 @@ from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 from datasets import load_from_disk
 
-from utils import get_time_token_collator, evaluate_mlm, evaluate_span_accuracy
+from utils import get_time_token_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens
 import argparse
 import os
 import logging
@@ -47,10 +47,20 @@ def main(args):
         datefmt='%Y-%m-%d %H:%M:%S')
     
     logging.info(f"Loading dataset...")
+    model = fetch_model(args.model_architecture, checkpoint_path)
     dataset = load_from_disk(args.data_dir)
     dataset = dataset['test']
     if args.sample:
         dataset = dataset.select(range(10))
+    
+    if args.add_time_tokens == "string":
+        logging.info(f"Adding string time tokens")
+        collator = get_time_token_collator(bert_tokenizer)
+    elif args.add_time_tokens == "special":
+        logging.info(f"Adding special time tokens")
+        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, args.process_dataset)
+        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
+    
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
     if args.model_architecture == "bert" and "timestamps" in dataset.features:
@@ -58,15 +68,6 @@ def main(args):
     
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
-    if args.use_time_tokens == "string":
-        collator = get_time_token_collator(bert_tokenizer)
-    elif args.use_time_tokens == "special":
-        year_tokens = [
-            "years: 1810-1860 text: ",
-            "years: 1960-2010 text: ",
-        ]
-        bert_tokenizer.add_tokens(year_tokens)
-        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
     
     results = {
         "perplexity": [],
@@ -84,7 +85,6 @@ def main(args):
     logging.info(f"Evaluating models...")
     def evaluate_path(checkpoint_path):
         try:
-            model = fetch_model(args.model_architecture, checkpoint_path)
             if args.span_f1:
                 result = evaluate_span_accuracy(model, dataset, collator, device, args.batch_size)
                 print(result)
