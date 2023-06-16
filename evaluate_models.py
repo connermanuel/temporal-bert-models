@@ -85,7 +85,7 @@ def main(args):
     logging.info(f"Evaluating models...")
     def evaluate_path(checkpoint_path):
         try:
-            if args.span_f1:
+            if args.f1:
                 result = evaluate_span_accuracy(model, dataset, collator, device, args.batch_size)
                 print(result)
             else:
