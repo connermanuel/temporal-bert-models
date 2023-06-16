@@ -361,7 +361,7 @@ class BertTemporalModel(BertModel):
         embedding_output = self.embeddings(
             input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds)
 
-        temporal_embeddings = self.time_embeddings(timestamps + 2)  # we add +1 so that padding maps to 0 and mask maps to 1
+        temporal_embeddings = self.time_embeddings(timestamps) 
 
         encoder_outputs = self.encoder(
             embedding_output,

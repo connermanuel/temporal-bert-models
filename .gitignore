@@ -8,3 +8,6 @@ run.log
 # Remove stuff that I used for local experimentation lol
 playground.ipynb
 .ipynb_checkpoints
+
+# Local junk
+*desktop.ini*

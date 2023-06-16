@@ -3,13 +3,12 @@ Generalized evaluation script for various datasets and model architectures.
 Given a directory containing model checkpoints, evaluate all of those checkpoints.
 """
 from torch import device as torch_device
-from models.orthogonal_weight_attention_naive import BertForNaiveOrthogonalMaskedLM
 from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 from datasets import load_from_disk
 
-from utils import get_time_token_collator, evaluate
+from utils import get_time_token_collator, evaluate_mlm, evaluate_span_accuracy
 import argparse
 import os
 import logging
@@ -20,7 +19,6 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
     dispatch_dict = {
         "tempo_bert": BertForTemporalMaskedLM,
         "orthogonal": BertForOrthogonalMaskedLM,
-        "naive": BertForNaiveOrthogonalMaskedLM,
         "bert": BertForMaskedLM
     }    
     
@@ -86,24 +84,28 @@ def main(args):
     logging.info(f"Evaluating models...")
     def evaluate_path(checkpoint_path):
         try:
-            model = fetch_model(args.model_architecture, f"{args.checkpoint_dir}/{checkpoint_path}")
-            result = evaluate(model, dataset, collator, device, args.batch_size)
-            for k, v in result.items():
-                results[k].append(v)
-            results['paths'].append(checkpoint_path)
+            model = fetch_model(args.model_architecture, checkpoint_path)
+            if args.span_f1:
+                result = evaluate_span_accuracy(model, dataset, collator, device, args.batch_size)
+                print(result)
+            else:
+                result = evaluate_mlm(model, dataset, collator, device, args.batch_size)
+                for k, v in result.items():
+                    results[k].append(v)
+                results['paths'].append(checkpoint_path)
 
-            with open(f"{args.results_dir}/results.json", "w") as f:
-                json.dump(results, f) 
+                with open(f"{args.results_dir}/results.json", "w") as f:
+                    json.dump(results, f) 
         except OSError:
             pass
     
     if args.checkpoint_dir:
         evaluate_path(args.checkpoint_dir)
     elif args.checkpoint_group_dir:
-        for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_))):
+        for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_group_dir))):
             if checkpoint_path == "run.log":
                 continue
-            evaluate_path(checkpoint_path)
+            evaluate_path(f"{args.checkpoint_dir}/{checkpoint_path}")
         
 
 if __name__ == "__main__":
@@ -144,6 +146,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sample", help="Indicates that we should only use a small sample of the data.",
         action='store_true')
+    parser.add_argument(
+        "--f1", help="Indicates that we should evaluate span F1.")
     
     args = parser.parse_args()
     main(args)

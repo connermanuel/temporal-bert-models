@@ -69,6 +69,12 @@ def main(args):
         logging.info(f"Sampling {args.sample} entries")
         for k in dataset.keys():
             dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
+
+    def fix_timestamps(examples):
+        examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
+        return examples
+    
+    dataset = dataset.map(fix_timestamps, batched=True)
     
     logging.info(f"Processing the dataset")
     if args.process_dataset:
@@ -77,7 +83,6 @@ def main(args):
             dataset[key] = shuffle_batched(dataset[key], args.batch_size)
     if args.add_time_tokens == "string":
         logging.info(f"Adding string time tokens")
-        ## TODO: add the time tokens
         collator = get_time_token_collator(bert_tokenizer)
     elif args.add_time_tokens == "special":
         logging.info(f"Adding special time tokens")

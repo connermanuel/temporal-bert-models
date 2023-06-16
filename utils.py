@@ -62,7 +62,7 @@ def make_batch_iterator(dataset, batch_size=32, shuffle=False):
         idx = idxs[start_index: start_index + batch_size]
         yield [dataset[int(i)] for i in idx]
 
-def evaluate(model, dataset, data_collator, 
+def evaluate_mlm(model, dataset, data_collator, 
              device=torch.device('cuda'), batch_size=16, pad_id=-100):
     """
     Compute token-level perplexity, accuracy, and MRR metrics.
@@ -87,21 +87,56 @@ def evaluate(model, dataset, data_collator,
               (ipt['labels'] != pad_id) &
               (ipt['labels'] == logits.argmax(2))).sum().item()
             correct_predictions += batch_correct_predictions
-            # idx = torch.nonzero(ipt['labels'] != pad_id)
-            # labels = ipt['labels'][idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
-            # logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
-            # logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
-            # ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
-            # total_ranks = torch.cat((total_ranks, ranks.cpu()))
-            # total_mrr += (1/ranks).sum().item()
+            idx = torch.nonzero(ipt['labels'] != pad_id)
+            labels = ipt['labels'][idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
+            logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
+            logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
+            ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
+            total_ranks = torch.cat((total_ranks, ranks.cpu()))
+            total_mrr += (1/ranks).sum().item()
     perplexity = math.exp(total_cross_entropy / total_predictions)
     accuracy = 100 * correct_predictions / total_predictions
-    # mrr = total_mrr / total_predictions
+    mrr = total_mrr / total_predictions
     return {
         'perplexity': perplexity, 
         'accuracy': accuracy, 
-        # 'mrr': mrr,
+        'mrr': mrr,
     }
+
+def evaluate_span_accuracy(model, dataset, data_collator, 
+             device=torch.device('cuda'), batch_size=16, pad_id=-100):
+    """Evaluates the span accuracy"""
+    
+    ids = dataset['id']
+    num_ids = torch.bincount(ids)
+    cum_num_ids = torch.cumsum(num_ids)
+
+    dataset.remove_columns(["id"])
+
+    model.eval()
+    model.to(device)
+    total_correct_predictions = torch.tensor([])
+    with torch.no_grad():
+        for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=math.ceil(len(dataset) / batch_size)):
+            ipt = BatchEncoding(data_collator(data)).to(device)
+            out = model(**ipt)
+            logits = out['logits']
+            total_correct_predictions = torch.cat(
+              total_correct_predictions, 
+              ((ipt['labels'] != pad_id) &
+              (ipt['labels'] == logits.argmax(2)))
+            )
+    
+    correct_spans = 0
+    start = 0
+    for end in cum_num_ids:
+        if torch.all(total_correct_predictions[start:end]):
+            correct_spans += 1
+        start = end
+    
+    return correct_spans / len(cum_num_ids)
+
+    
 
 def add_timestamp(examples):
     # Only works on correctly batched tokens.

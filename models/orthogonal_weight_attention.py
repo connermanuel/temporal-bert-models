@@ -86,7 +86,7 @@ class BertTemporalSelfAttention(BertSelfAttention):
         device = original_layer.device
         original_layer = self.transpose_for_scores(original_layer)
         temporal_conditioned_layer = torch.zeros(original_layer.shape, device=device)        
-        timestamps = timestamps + 2
+        timestamps = timestamps
 
         for val in torch.unique(timestamps):
             mask = torch.unsqueeze(timestamps==val, 1)[..., None]
