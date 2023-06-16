@@ -141,7 +141,7 @@ if __name__ == "__main__":
         "--use-fp16", help="If flag is used, use the fp16 backend.",
         action='store_true')
     parser.add_argument(
-        "--use_time_tokens", help="Indicates that the dataset has prepeneded time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
+        "--add-time-tokens", help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
         choices=[None, "none", "string", "special"], default=None)
     parser.add_argument(
         "--sample", help="Indicates that we should only use a small sample of the data.",
