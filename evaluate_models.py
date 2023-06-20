@@ -8,7 +8,7 @@ from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 from datasets import load_from_disk
 
-from utils import get_time_token_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens
+from utils import get_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, fix_timestamps, sort_by_timestamp, shuffle_batched
 import argparse
 import os
 import logging
@@ -25,6 +25,7 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
     return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
 
 def main(args):
+    ### Fix kwargs, create directories, and setup logging
     model_str = f"{args.model_architecture}"
     if args.model_architecture == "orthogonal":
         model_str = f"{args.model_architecture}_{args.alpha}"
@@ -46,29 +47,57 @@ def main(args):
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
     
-    logging.info(f"Loading dataset...")
-    model = fetch_model(args.model_architecture, checkpoint_path)
-    dataset = load_from_disk(args.data_dir)
-    dataset = dataset['test']
-    if args.sample:
-        dataset = dataset.select(range(10))
+    ### Prepare collator and tokenizer
+    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    DEFAULT_TOKENIZER_LEN = len(bert_tokenizer)
+    if args.add_time_tokens == "special":
+        special_tokens = [f"timestamp: {t} text: " for t in range(args.n_contexts)]
+        bert_tokenizer.add_tokens(special_tokens)
     
     if args.add_time_tokens == "string":
-        logging.info(f"Adding string time tokens")
-        collator = get_time_token_collator(bert_tokenizer)
+        collator = get_collator(bert_tokenizer)
     elif args.add_time_tokens == "special":
-        logging.info(f"Adding special time tokens")
-        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, args.process_dataset)
-        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
+        collator = get_collator(bert_tokenizer, n_tokens=1)
+    else:
+        collator = DataCollatorForLanguageModeling(bert_tokenizer)
+
+    ### Load and process dataset
+    logging.info(f"Loading dataset...")
+    dataset = load_from_disk(args.data_dir)
+    try:
+        dataset = dataset[args.split]
+    except KeyError:
+        raise KeyError(f"The split {args.split} does not exist in the dataset. Existing splits are: {dataset.keys()}")
     
+    if args.sample:
+        logging.info(f"Sampling {args.sample} entries")
+        for k in dataset.keys():
+            dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
+    
+    logging.info(f"Processing the dataset")
+    if args.process_dataset:
+        dataset = sort_by_timestamp(dataset)
+        for key in dataset.keys():
+            dataset[key] = shuffle_batched(dataset[key], args.batch_size)
+        if args.add_time_tokens == "string":
+            logging.info(f"Adding string time tokens")
+            ## TODO
+        elif args.add_time_tokens == "special":
+            logging.info(f"Adding special time tokens")
+            dataset = add_special_time_tokens(dataset, DEFAULT_TOKENIZER_LEN, args.n_contexts)
+
+    if args.save_dataset:
+        logging.info(f"Saving the dataset to {args.save_dataset}")
+        dataset.save_to_disk(args.save_dataset)
+    
+    dataset = dataset.map(fix_timestamps, batched=True)
+
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
     if args.model_architecture == "bert" and "timestamps" in dataset.features:
         dataset = dataset.remove_columns("timestamps") 
     
-    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    collator = DataCollatorForLanguageModeling(bert_tokenizer)
-    
+    ### Prepare evaluation setup
     results = {
         "perplexity": [],
         "accuracy": [],
@@ -82,8 +111,10 @@ def main(args):
         device = torch_device("cuda") 
     
     
+    ### Evaluate models
     logging.info(f"Evaluating models...")
     def evaluate_path(checkpoint_path):
+        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, False)
         try:
             if args.f1:
                 result = evaluate_span_accuracy(model, dataset, collator, device, args.batch_size)
@@ -105,7 +136,8 @@ def main(args):
         for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_group_dir))):
             if checkpoint_path == "run.log":
                 continue
-            evaluate_path(f"{args.checkpoint_dir}/{checkpoint_path}")
+            model = fetch_model(args.model_architecture, checkpoint_path)
+            evaluate_path(f"{args.checkpoint_group_dir}/{checkpoint_path}")
         
 
 if __name__ == "__main__":
@@ -144,8 +176,14 @@ if __name__ == "__main__":
         "--add-time-tokens", help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
         choices=[None, "none", "string", "special"], default=None)
     parser.add_argument(
-        "--sample", help="Indicates that we should only use a small sample of the data.",
+        "--process-dataset", help="Performs sorting and batch shuffling, and prepends time tokens if needed.",
         action='store_true')
+    parser.add_argument(
+        "--split", help="The split of the dataset to use for evaluation. Defaults to test.",
+        default="test")    
+    parser.add_argument(
+        "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
+        type=int, default=0)
     parser.add_argument(
         "--f1", help="Indicates that we should evaluate span F1.")
     

@@ -14,29 +14,31 @@ def add_zero_timestamp(dataset):
         return examples
     return dataset.map(helper, batched=True)
 
-def get_time_token_collator(tokenizer, n_tokens=8):
+def get_collator(tokenizer, n_tokens=8, mask=True):
+    """Generates a collator that masks and pads."""
     wwm_probability = 0.15
 
-    def time_token_collator(features):
+    def collator(features):
         """A data collator that skips over the first few tokens in the dataset."""
-        for feature in features:
-            # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
-            mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
-            input_ids = torch.tensor(feature["input_ids"], requires_grad=False)
-            new_labels = torch.full(input_ids.shape, -100)
+        if mask:
+            for feature in features:
+                # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
+                mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
+                input_ids = torch.tensor(feature["input_ids"], requires_grad=False)
+                new_labels = torch.full(input_ids.shape, -100)
 
-            # When selecting the indices of words to mask, only start at index 8
-            masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + n_tokens
-            new_labels[masked_idxs] = input_ids[masked_idxs]
-            feature["labels"] = new_labels
-            
-            # 80% chance to replace with mask token, 10% chance to replace with random token, 10% chance to leave it alone
-            probabilities = torch.rand(masked_idxs.shape)
-            replace_with_mask_token = masked_idxs[probabilities < 0.8]
-            input_ids[replace_with_mask_token] = tokenizer.mask_token_id
-            replace_with_random_token = masked_idxs[probabilities > 0.9]
-            input_ids[replace_with_random_token] = torch.randint(len(tokenizer), replace_with_random_token.shape)
-            feature['input_ids'] = input_ids
+                # When selecting the indices of words to mask, only start at index 8
+                masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + n_tokens
+                new_labels[masked_idxs] = input_ids[masked_idxs]
+                feature["labels"] = new_labels
+                
+                # 80% chance to replace with mask token, 10% chance to replace with random token, 10% chance to leave it alone
+                probabilities = torch.rand(masked_idxs.shape)
+                replace_with_mask_token = masked_idxs[probabilities < 0.8]
+                input_ids[replace_with_mask_token] = tokenizer.mask_token_id
+                replace_with_random_token = masked_idxs[probabilities > 0.9]
+                input_ids[replace_with_random_token] = torch.randint(len(tokenizer), replace_with_random_token.shape)
+                feature['input_ids'] = input_ids
         
         # Construct the return value
         retval = {}
@@ -50,7 +52,7 @@ def get_time_token_collator(tokenizer, n_tokens=8):
             
         return BatchEncoding(retval) # Pads everything to right length
     
-    return time_token_collator
+    return collator
 
 def make_batch_iterator(dataset, batch_size=32, shuffle=False):
     num_examples = len(dataset)
@@ -163,12 +165,8 @@ class NonShuffledTrainer(Trainer):
     def _get_train_sampler(self):
         return None
 
-def add_special_time_tokens(dataset, tokenizer, model, n_contexts, process_dataset):
-    # Only works on correctly batched tokens.
-    special_tokens = [f"timestamp: {t} text: " for t in range(n_contexts)]
-    old_tokenizer_len = len(tokenizer)
-    tokenizer.add_tokens(special_tokens)
-    model.resize_token_embeddings(len(tokenizer))
+def add_special_time_tokens(dataset, tokenizer, n_contexts, process_dataset):
+    # Inserts special time tokens into the dataset and resizes tokenizer.
     
     def insert_special_token(examples):
         for k in examples.keys():
@@ -183,3 +181,16 @@ def add_special_time_tokens(dataset, tokenizer, model, n_contexts, process_datas
     if process_dataset:
         dataset = dataset.map(insert_special_token, batched=True)
     return dataset
+
+def fix_timestamps(examples):
+        examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
+        return examples
+
+def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
+    """Copy the weights from the source model to the destination model."""
+    sd = dest.state_dict()
+    src_sd = src.state_dict()
+    for k in src_sd:
+        sd[k] = src_sd[k]
+    dest.load_state_dict(sd)
+    return dest

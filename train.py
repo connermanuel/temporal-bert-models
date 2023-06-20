@@ -2,32 +2,20 @@
 import torch
 from torch.cuda import empty_cache
 from datasets import load_from_disk
-from models.orthogonal_weight_attention_naive import BertForNaiveOrthogonalMaskedLM
 from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, AutoConfig
 
-from utils import get_time_token_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens
+from utils import get_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens, fix_timestamps, copy_weights
 import argparse
 import logging
 import gc
 import os
 
-
-def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
-    """Copy the weights from the source model to the destination model."""
-    sd = dest.state_dict()
-    src_sd = src.state_dict()
-    for k in src_sd:
-        sd[k] = src_sd[k]
-    dest.load_state_dict(sd)
-    return dest
-
 def initialize_model(model_architecture: str, n_contexts: int, alpha: float):
     dispatch_dict = {
         "tempo_bert": BertForTemporalMaskedLM,
         "orthogonal": BertForOrthogonalMaskedLM,
-        "naive": BertForNaiveOrthogonalMaskedLM
     }
 
     config = AutoConfig.from_pretrained('bert-base-uncased')
@@ -43,12 +31,15 @@ def initialize_model(model_architecture: str, n_contexts: int, alpha: float):
     return model
 
 def main(args):
+    ### Fix kwargs, create directories, and setup logging
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if args.output_dir is None:
         args.output_dir = f"./output/{args.model_architecture}/lr-{args.lr}"
         if args.model_architecture == "orthogonal":
             args.output_dir = f"{args.output_dir}_alpha-{args.alpha}"
     
+    if not os.path.exists(args.data_dir):
+        raise ValueError("Data directory does not exist")
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
@@ -59,46 +50,58 @@ def main(args):
         datefmt='%Y-%m-%d %H:%M:%S')
        
     logging.info(f"Initializing model")
-    model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
     bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collator = DataCollatorForLanguageModeling(bert_tokenizer)
+
+    ### Prepare collator and tokenizer
+    bert_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    DEFAULT_TOKENIZER_LEN = len(bert_tokenizer)
+    if args.add_time_tokens == "special":
+        special_tokens = [f"timestamp: {t} text: " for t in range(args.n_contexts)]
+        bert_tokenizer.add_tokens(special_tokens)
     
+    if args.add_time_tokens == "string":
+        collator = get_collator(bert_tokenizer)
+    elif args.add_time_tokens == "special":
+        collator = get_collator(bert_tokenizer, n_tokens=1)
+    else:
+        collator = DataCollatorForLanguageModeling(bert_tokenizer)
+
+    ### Load and process dataset
     logging.info(f"Loading dataset...")
     dataset = load_from_disk(args.data_dir)
     if args.sample:
         logging.info(f"Sampling {args.sample} entries")
         for k in dataset.keys():
             dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
-
-    def fix_timestamps(examples):
-        examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
-        return examples
-    
-    dataset = dataset.map(fix_timestamps, batched=True)
     
     logging.info(f"Processing the dataset")
     if args.process_dataset:
         dataset = sort_by_timestamp(dataset)
         for key in dataset.keys():
             dataset[key] = shuffle_batched(dataset[key], args.batch_size)
-    if args.add_time_tokens == "string":
-        logging.info(f"Adding string time tokens")
-        collator = get_time_token_collator(bert_tokenizer)
-    elif args.add_time_tokens == "special":
-        logging.info(f"Adding special time tokens")
-        dataset = add_special_time_tokens(dataset, bert_tokenizer, model, args.n_contexts, args.process_dataset)
-        collator = get_time_token_collator(bert_tokenizer, n_tokens=1)
+        if args.add_time_tokens == "string":
+            logging.info(f"Adding string time tokens")
+            ## TODO
+        elif args.add_time_tokens == "special":
+            logging.info(f"Adding special time tokens")
+            dataset = add_special_time_tokens(dataset, DEFAULT_TOKENIZER_LEN, args.n_contexts)
     
     if args.save_dataset:
         logging.info(f"Saving the dataset to {args.save_dataset}")
         dataset.save_to_disk(args.save_dataset)
     
+    dataset = dataset.map(fix_timestamps, batched=True)
+
+    ### Prepare model
+    model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
+
+    ### Prepare training setup
     save_strategy = 'epoch'
     save_steps = len(dataset['train'])
     if args.saves_per_epoch > 1:
         save_strategy = 'steps'
         save_steps = max(len(dataset['train']) // (args.batch_size * args.saves_per_epoch), 1)
- 
     
     train_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -185,7 +188,7 @@ if __name__ == "__main__":
         "--auto-batch", help="Indicates that we should automatically find the best batch size.",
         action='store_true')
     parser.add_argument(
-        "--process-dataset", help="Indicates that the dataset should be processed (i.e. sorted and batch shuffled)",
+        "--process-dataset", help="Performs sorting and batch shuffling, and prepends time tokens if needed.",
         action='store_true')
     parser.add_argument(
         "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
