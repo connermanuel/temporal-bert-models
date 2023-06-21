@@ -163,7 +163,7 @@ if __name__ == "__main__":
         help='Path to directory to store checkpoints to. Defaults to "results/{architecture}".', default=None)
     parser.add_argument(
         "--alpha", 
-        help="Regularization parameter. Defaults to 1. Only used for orthogonal model.",
+        help="Regularization parameter. Defaults to 1. Only used for orthogonal model directory naming.",
         type=float, default=1)
     parser.add_argument(
         "--batch-size", 
@@ -181,6 +181,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--process-dataset", help="Performs sorting and batch shuffling, and prepends time tokens if needed.",
         action='store_true')
+    parser.add_argument(
+        "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
     parser.add_argument(
         "--split", help="The split of the dataset to use for evaluation. Defaults to test.",
         default="test")    
