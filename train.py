@@ -60,12 +60,15 @@ def main(args):
         special_tokens = [f"timestamp: {t} text: " for t in range(args.n_contexts)]
         bert_tokenizer.add_tokens(special_tokens)
     
+    mask = not args.no_mask
     if args.add_time_tokens == "string":
-        collator = get_collator(bert_tokenizer)
+        collator = get_collator(bert_tokenizer, mask=mask)
     elif args.add_time_tokens == "special":
-        collator = get_collator(bert_tokenizer, n_tokens=1)
-    else:
+        collator = get_collator(bert_tokenizer, n_tokens=1, mask=mask)
+    elif mask:
         collator = DataCollatorForLanguageModeling(bert_tokenizer)
+    else:
+        collator = get_collator(bert_tokenizer, mask=mask)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -85,7 +88,7 @@ def main(args):
             ## TODO
         elif args.add_time_tokens == "special":
             logging.info(f"Adding special time tokens")
-            dataset = add_special_time_tokens(dataset, DEFAULT_TOKENIZER_LEN, args.n_contexts)
+            dataset = add_special_time_tokens(dataset, DEFAULT_TOKENIZER_LEN)
     
     if args.save_dataset:
         logging.info(f"Saving the dataset to {args.save_dataset}")
@@ -194,6 +197,8 @@ if __name__ == "__main__":
         "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
     parser.add_argument(
         "--resume", help="Resume training from checkpoint.", action='store_true')
+    parser.add_argument(
+        "--no_mask", help="Do not use a masked language modeling collator. Used when the dataset already has tokens masked out.", action="store_true")
     
     args = parser.parse_args()
     main(args)

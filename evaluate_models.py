@@ -116,30 +116,31 @@ def main(args):
     
     ### Evaluate models
     logging.info(f"Evaluating models...")
-    def evaluate_path(checkpoint_path):
-        try:
-            if args.f1:
-                result = evaluate_span_accuracy(model, dataset, collator, device, args.batch_size)
-                print(result)
-            else:
-                result = evaluate_mlm(model, dataset, collator, device, args.batch_size)
-                for k, v in result.items():
-                    results[k].append(v)
-                results['paths'].append(checkpoint_path)
+    def evaluate_path(checkpoint_path, f1, batch_size, results_dir):
+        if f1:
+            result = evaluate_span_accuracy(model, dataset, collator, device, batch_size)
+            print(result)
+        else:
+            result = evaluate_mlm(model, dataset, collator, device, batch_size)
+            for k, v in result.items():
+                results[k].append(v)
+            results['paths'].append(checkpoint_path)
 
-                with open(f"{args.results_dir}/results.json", "w") as f:
-                    json.dump(results, f) 
-        except OSError:
-            pass
+            with open(f"{results_dir}/results.json", "w") as f:
+                json.dump(results, f)
     
     if args.checkpoint_dir:
-        evaluate_path(args.checkpoint_dir)
+        evaluate_path(args.checkpoint_dir, args.f1, args.batch_size, args.results_dir)
     elif args.checkpoint_group_dir:
         for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_group_dir))):
             if checkpoint_path == "run.log":
                 continue
-            model = fetch_model(args.model_architecture, checkpoint_path)
-            evaluate_path(f"{args.checkpoint_group_dir}/{checkpoint_path}")
+            try:
+                model = fetch_model(args.model_architecture, checkpoint_path)
+                full_checkpoint_path = f"{args.checkpoint_group_dir}/{checkpoint_path}"
+                evaluate_path(full_checkpoint_path, args.f1, args.batch_size, args.results_dir)
+            except OSError:
+                print(f"Could not evaluate {checkpoint_path}")
         
 
 if __name__ == "__main__":

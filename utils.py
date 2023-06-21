@@ -165,7 +165,7 @@ class NonShuffledTrainer(Trainer):
     def _get_train_sampler(self):
         return None
 
-def add_special_time_tokens(dataset, tokenizer, n_contexts, process_dataset):
+def add_special_time_tokens(dataset, tokenizer_len):
     # Inserts special time tokens into the dataset and resizes tokenizer.
     
     def insert_special_token(examples):
@@ -175,15 +175,17 @@ def add_special_time_tokens(dataset, tokenizer, n_contexts, process_dataset):
             if k == "input_ids":
                 ids = examples['input_ids']
                 ts = examples['timestamps']
-                examples["input_ids"] = torch.hstack((ids[:, 0:1], (old_tokenizer_len + ts[:, 0:1]), ids[:, 1:]))
+                examples["input_ids"] = torch.hstack((ids[:, 0:1], (tokenizer_len + ts[:, 0:1]), ids[:, 1:]))
             else:
                 examples[k] = torch.hstack((examples[k][:, 0:1], examples[k]))
-    if process_dataset:
-        dataset = dataset.map(insert_special_token, batched=True)
+    dataset = dataset.map(insert_special_token, batched=True)
     return dataset
 
 def fix_timestamps(examples):
-        examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
+        try:
+            examples['timestamps'] = torch.tensor(examples['timestamps']) + 2
+        except ValueError:
+            examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
         return examples
 
 def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
