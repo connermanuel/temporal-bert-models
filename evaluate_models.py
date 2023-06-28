@@ -5,7 +5,7 @@ Given a directory containing model checkpoints, evaluate all of those checkpoint
 from torch import device as torch_device
 from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
 from models.temporal_self_attention import BertForTemporalMaskedLM
-from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
+from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling, AutoConfig
 from datasets import load_from_disk
 
 from utils import get_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, fix_timestamps, sort_by_timestamp, shuffle_batched
@@ -21,7 +21,9 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
         "orthogonal": BertForOrthogonalMaskedLM,
         "bert": BertForMaskedLM
     }    
-    
+    if model_architecture == "orthogonal":
+        config = AutoConfig.from_pretrained('bert-base-uncased')
+        model = BertForOrthogonalMaskedLM
     return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
 
 def main(args):
@@ -29,13 +31,15 @@ def main(args):
     model_str = f"{args.model_architecture}"
     if args.model_architecture == "orthogonal":
         model_str = f"{args.model_architecture}_{args.alpha}"
-    if args.checkpoint_dir is None:
-        args.checkpoint_dir = f"outputs/{model_str}"
+    if args.checkpoint_path is None and args.checkpoint_group_dir is None:
+        args.checkpoint_path = f"outputs/{model_str}"
     if args.results_dir is None:
         args.results_dir = f"results/{model_str}"
     
-    if not os.path.exists(args.checkpoint_dir):
+    if args.checkpoint_path and not os.path.exists(args.checkpoint_path):
         raise ValueError("Checkpoint directory does not exist")
+    elif args.checkpoint_group_dir and not os.path.exists(args.checkpoint_group_dir):
+        raise ValueError("Checkpoint group directory does not exist")
     if not os.path.exists(args.data_dir):
         raise ValueError("Data directory does not exist")
     if not os.path.exists(args.results_dir):
@@ -56,13 +60,13 @@ def main(args):
     
     mask = not args.no_mask
     if args.add_time_tokens == "string":
-        collator = get_collator(bert_tokenizer, mask=mask)
+        collator = get_collator(bert_tokenizer, do_masking=mask)
     elif args.add_time_tokens == "special":
-        collator = get_collator(bert_tokenizer, n_tokens=1, mask=mask)
+        collator = get_collator(bert_tokenizer, n_tokens=1, do_masking=mask)
     elif mask:
         collator = DataCollatorForLanguageModeling(bert_tokenizer)
     else:
-        collator = get_collator(bert_tokenizer, mask=mask)
+        collator = get_collator(bert_tokenizer, do_masking=mask)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -70,18 +74,16 @@ def main(args):
     try:
         dataset = dataset[args.split]
     except KeyError:
-        raise KeyError(f"The split {args.split} does not exist in the dataset. Existing splits are: {dataset.keys()}")
+        raise KeyError(f"The split {args.split} does not exist in the dataset. Existing splits are: {dataset.column_names}")
     
     if args.sample:
         logging.info(f"Sampling {args.sample} entries")
-        for k in dataset.keys():
-            dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
+        dataset = dataset.select(range(min(args.sample, len(dataset))))
     
     logging.info(f"Processing the dataset")
     if args.process_dataset:
         dataset = sort_by_timestamp(dataset)
-        for key in dataset.keys():
-            dataset[key] = shuffle_batched(dataset[key], args.batch_size)
+        # dataset = shuffle_batched(dataset, args.batch_size)
         if args.add_time_tokens == "string":
             logging.info(f"Adding string time tokens")
             ## TODO
@@ -93,12 +95,13 @@ def main(args):
         logging.info(f"Saving the dataset to {args.save_dataset}")
         dataset.save_to_disk(args.save_dataset)
     
-    dataset = dataset.map(fix_timestamps, batched=True)
 
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
     if args.model_architecture == "bert" and "timestamps" in dataset.features:
         dataset = dataset.remove_columns("timestamps") 
+    else:
+        dataset = dataset.map(fix_timestamps, batched=True)
     
     ### Prepare evaluation setup
     results = {
@@ -116,10 +119,12 @@ def main(args):
     
     ### Evaluate models
     logging.info(f"Evaluating models...")
-    def evaluate_path(checkpoint_path, f1, batch_size, results_dir):
+    def evaluate_path(checkpoint_path, architecture, f1, batch_size, results_dir):
+        model = fetch_model(architecture, checkpoint_path)
         if f1:
             result = evaluate_span_accuracy(model, dataset, collator, device, batch_size)
-            print(result)
+            with open(f"{results_dir}/results.json", "w") as f:
+                json.dump({"accuracy": result}, f)
         else:
             result = evaluate_mlm(model, dataset, collator, device, batch_size)
             for k, v in result.items():
@@ -129,16 +134,15 @@ def main(args):
             with open(f"{results_dir}/results.json", "w") as f:
                 json.dump(results, f)
     
-    if args.checkpoint_dir:
-        evaluate_path(args.checkpoint_dir, args.f1, args.batch_size, args.results_dir)
+    if args.checkpoint_path:
+        evaluate_path(args.checkpoint_path, args.model_architecture, args.f1, args.batch_size, args.results_dir)
     elif args.checkpoint_group_dir:
         for checkpoint_path in tqdm.tqdm(sorted(os.listdir(args.checkpoint_group_dir))):
             if checkpoint_path == "run.log":
                 continue
             try:
-                model = fetch_model(args.model_architecture, checkpoint_path)
                 full_checkpoint_path = f"{args.checkpoint_group_dir}/{checkpoint_path}"
-                evaluate_path(full_checkpoint_path, args.f1, args.batch_size, args.results_dir)
+                evaluate_path(full_checkpoint_path, args.model_architecture, args.f1, args.batch_size, args.results_dir)
             except OSError:
                 print(f"Could not evaluate {checkpoint_path}")
         
@@ -149,6 +153,10 @@ if __name__ == "__main__":
         "-m", "--model_architecture",
         help="The model architecture to train",
         choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
+    parser.add_argument(
+        "--n-contexts", 
+        help='Number of contexts/timestamps. Defaults to 2, the number of timestamps in the SemEval dataset.', 
+        type=int, default=2)
     parser.add_argument(
         "--data-dir", 
         help="Path of the huggingface dataset.", required=True)
@@ -190,9 +198,9 @@ if __name__ == "__main__":
         "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
         type=int, default=0)
     parser.add_argument(
-        "--f1", help="Indicates that we should evaluate span F1.")
+        "--f1", help="Indicates that we should evaluate span F1.", action="store_true")
     parser.add_argument(
-        "--no_mask", help="Do not use a masked language modeling collator. Used when the dataset already has tokens masked out.", action="store_true")
+        "--no-mask", help="Do not use a masked language modeling collator. Used when the dataset already has tokens masked out.", action="store_true")
     
     args = parser.parse_args()
     main(args)
