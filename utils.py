@@ -14,13 +14,13 @@ def add_zero_timestamp(dataset):
         return examples
     return dataset.map(helper, batched=True)
 
-def get_collator(tokenizer, n_tokens=8, mask=True):
+def get_collator(tokenizer, n_tokens=8, do_masking=True):
     """Generates a collator that masks and pads."""
     wwm_probability = 0.15
 
     def collator(features):
         """A data collator that skips over the first few tokens in the dataset."""
-        if mask:
+        if do_masking:
             for feature in features:
                 # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
                 mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
@@ -43,10 +43,7 @@ def get_collator(tokenizer, n_tokens=8, mask=True):
         # Construct the return value
         retval = {}
         for key in features[0].keys():
-            if key == "input_ids" or key == "labels":
-                tensors = [feature[key] for feature in features]
-            else:
-                tensors = [torch.tensor(feature[key]) for feature in features]
+            tensors = [torch.tensor(feature[key]) for feature in features]
             pad_value = -100 if key == "labels" else 0
             retval[key] = pad_sequence(tensors, batch_first=True, padding_value=pad_value)
             
@@ -79,7 +76,7 @@ def evaluate_mlm(model, dataset, data_collator,
     total_ranks = torch.tensor([], dtype=int)
     with torch.no_grad():
         for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=math.ceil(len(dataset) / batch_size)):
-            ipt = BatchEncoding(data_collator(data)).to(device)
+            ipt = data_collator(data).to(device)
             out = model(**ipt)
             logits = out['logits']
             num_predictions = (ipt['labels'] != pad_id).sum().item()
@@ -109,41 +106,45 @@ def evaluate_span_accuracy(model, dataset, data_collator,
              device=torch.device('cuda'), batch_size=16, pad_id=-100):
     """Evaluates the span accuracy"""
     
-    ids = dataset['id']
+    ids = torch.tensor(dataset['id'])
+    unique_ids = torch.unique(ids).sort()[0]
     num_ids = torch.bincount(ids)
-    cum_num_ids = torch.cumsum(num_ids)
+    cum_num_ids = torch.unique(torch.cumsum(num_ids, dim=0))
 
-    dataset.remove_columns(["id"])
+    dataset = dataset.remove_columns(["id"])
 
     model.eval()
     model.to(device)
-    total_correct_predictions = torch.tensor([])
+    total_correct_predictions = torch.tensor([]).to(device)
+    predictions = torch.tensor([]).to(device)
     with torch.no_grad():
         for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=math.ceil(len(dataset) / batch_size)):
             ipt = BatchEncoding(data_collator(data)).to(device)
             out = model(**ipt)
             logits = out['logits']
-            total_correct_predictions = torch.cat(
-              total_correct_predictions, 
-              ((ipt['labels'] != pad_id) &
-              (ipt['labels'] == logits.argmax(2)))
-            )
+            total_correct_predictions = torch.cat((
+              total_correct_predictions, (ipt['labels'] == logits.argmax(2))[ipt['labels'] != pad_id]))
+            predictions = torch.cat((
+                predictions, logits.argmax(2)[ipt['labels'] != pad_id]))
     
+    total_correct_predictions = total_correct_predictions[torch.argsort(ids)]
+    predictions = predictions[torch.argsort(ids)]
     correct_spans = 0
     start = 0
-    for end in cum_num_ids:
+    for id, end in zip(unique_ids, cum_num_ids):
         if torch.all(total_correct_predictions[start:end]):
             correct_spans += 1
         start = end
     
     return correct_spans / len(cum_num_ids)
 
-    
-
 def add_timestamp(examples):
     # Only works on correctly batched tokens.
-    timestamps = torch.tensor(examples['timestamps'])
-    examples['timestamp'] = timestamps[:, 0]
+    try:
+        timestamps = torch.tensor(examples['timestamps'])
+        examples['timestamp'] = timestamps[:, 0]
+    except ValueError:
+        examples['timestamp'] = [t[0] for t in examples['timestamps']]
     return examples
     
 def sort_by_timestamp(dataset):
@@ -167,8 +168,7 @@ class NonShuffledTrainer(Trainer):
 
 def add_special_time_tokens(dataset, tokenizer_len):
     # Inserts special time tokens into the dataset and resizes tokenizer.
-    
-    def insert_special_token(examples):
+    def insert_special_token_batched(examples):
         for k in examples.keys():
             examples[k] = torch.tensor(examples[k])
         for k in examples.keys():
@@ -176,9 +176,25 @@ def add_special_time_tokens(dataset, tokenizer_len):
                 ids = examples['input_ids']
                 ts = examples['timestamps']
                 examples["input_ids"] = torch.hstack((ids[:, 0:1], (tokenizer_len + ts[:, 0:1]), ids[:, 1:]))
-            else:
+            elif len(examples[k].shape) > 1:
                 examples[k] = torch.hstack((examples[k][:, 0:1], examples[k]))
-    dataset = dataset.map(insert_special_token, batched=True)
+        return examples
+    
+    def insert_special_token(example):
+        for k in example.keys():
+            if k == "input_ids":
+                example['input_ids'] = (example['input_ids'][0:1] + [tokenizer_len + example['timestamps'][0]] + example['input_ids'][1:])
+            else:
+                try:
+                    example[k] = example[k][0:1] + example[k]
+                except TypeError:
+                    pass
+        return example
+    
+    try:
+        dataset = dataset.map(insert_special_token_batched, batched=True)
+    except ValueError:
+        dataset = dataset.map(insert_special_token)
     return dataset
 
 def fix_timestamps(examples):

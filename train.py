@@ -2,8 +2,8 @@
 import torch
 from torch.cuda import empty_cache
 from datasets import load_from_disk
-from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
-from models.temporal_self_attention import BertForTemporalMaskedLM
+from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM, OrthogonalConfig
+from models.temporal_self_attention import BertForTemporalMaskedLM, TempoBertConfig
 from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling, TrainingArguments, AutoConfig
 
 from utils import get_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens, fix_timestamps, copy_weights
@@ -13,20 +13,16 @@ import gc
 import os
 
 def initialize_model(model_architecture: str, n_contexts: int, alpha: float):
-    dispatch_dict = {
-        "tempo_bert": BertForTemporalMaskedLM,
-        "orthogonal": BertForOrthogonalMaskedLM,
-    }
-
-    config = AutoConfig.from_pretrained('bert-base-uncased')
+    """Initializes a model for the first time, ready for training."""   
     bert_model = AutoModelForMaskedLM.from_pretrained('bert-base-uncased')
     if model_architecture == "bert":
         return bert_model
-    elif model_architecture == "tempo_bert":
-        model = BertForTemporalMaskedLM(config=config, n_contexts=n_contexts)
-    else:
-        ModelClass = dispatch_dict[model_architecture]
-        model = ModelClass(config=config, n_contexts=n_contexts, alpha=alpha)
+    elif model_architecture == "tempo":
+        config = TempoBertConfig(n_contexts)
+        model = BertForTemporalMaskedLM(config)
+    elif model_architecture == "orthogonal":
+        config = OrthogonalConfig(n_contexts, alpha)
+        model = BertForOrthogonalMaskedLM(config)
     model = copy_weights(bert_model, model)
     return model
 
@@ -62,13 +58,13 @@ def main(args):
     
     mask = not args.no_mask
     if args.add_time_tokens == "string":
-        collator = get_collator(bert_tokenizer, mask=mask)
+        collator = get_collator(bert_tokenizer, do_masking=mask)
     elif args.add_time_tokens == "special":
-        collator = get_collator(bert_tokenizer, n_tokens=1, mask=mask)
+        collator = get_collator(bert_tokenizer, n_tokens=1, do_masking=mask)
     elif mask:
         collator = DataCollatorForLanguageModeling(bert_tokenizer)
     else:
-        collator = get_collator(bert_tokenizer, mask=mask)
+        collator = get_collator(bert_tokenizer, do_masking=mask)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -94,10 +90,13 @@ def main(args):
         logging.info(f"Saving the dataset to {args.save_dataset}")
         dataset.save_to_disk(args.save_dataset)
     
-    dataset = dataset.map(fix_timestamps, batched=True)
+    if args.model_architecture != "bert":
+        dataset = dataset.map(fix_timestamps, batched=True)
 
     ### Prepare model
     model = initialize_model(args.model_architecture, args.n_contexts, args.alpha)
+    if args.add_time_tokens == "special":
+        model.resize_token_embeddings(len(bert_tokenizer))
 
     ### Prepare training setup
     save_strategy = 'epoch'
@@ -140,7 +139,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-m", "--model_architecture",
         help="The model architecture to train.",
-        choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
+        choices=["bert", "tempo_bert", "orthogonal"], required=True)
     parser.add_argument(
         "--data-dir", 
         help='Path of the huggingface dataset. Defaults to "./data/news_crawl_processed".', default="./data/news_crawl_processed")

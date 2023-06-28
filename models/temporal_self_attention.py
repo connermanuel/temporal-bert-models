@@ -3,15 +3,21 @@ Implements a modification of the self-attention layer that interweaves temporal 
 Based on the Huggingface transformers library, using BertSelfAttention as a superclass.
 """
 
-from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertEmbeddings, BertModel, BertForMaskedLM
+from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM
 from transformers.modeling_utils import apply_chunking_to_forward
 from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput
+from transformers import BertConfig
 import torch.nn as nn
 import torch
 import math
 import warnings
 import joblib
 import os
+
+class TempoBertConfig(BertConfig):
+    def __init__(self, n_contexts, **kwargs):
+        super().__init__(**kwargs)
+        self.n_contexts = n_contexts
 
 class BertTemporalSelfAttention(BertSelfAttention):
     def __init__(self, config):

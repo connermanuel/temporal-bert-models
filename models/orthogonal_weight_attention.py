@@ -8,9 +8,10 @@ HF modeling utils: https://github.com/huggingface/transformers/blob/main/src/tra
 HF modeling bert: https://github.com/huggingface/transformers/blob/main/src/transformers/models/bert/modeling_bert.py
 """
 
-from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertEmbeddings, BertModel, BertForMaskedLM
+from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM
 from transformers.modeling_utils import apply_chunking_to_forward
 from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput
+from transformers import BertConfig
 
 import torch
 import torch.nn as nn
@@ -21,6 +22,12 @@ import math
 import warnings
 from typing import Optional, Tuple
 
+class OrthogonalConfig(BertConfig):
+    def __init__(self, n_contexts, alpha, **kwargs):
+        super().__init__(**kwargs)
+        self.n_contexts = n_contexts
+        self.alpha = alpha
+    
 class MultiHeadLinear(nn.Module):
     """
     Applies a batched linear transformation to incoming data. For each batch, compute `y = xA^T + b`.
@@ -55,9 +62,8 @@ class MultiHeadLinear(nn.Module):
         return out
 
 class BertTemporalSelfAttention(BertSelfAttention):
-    def __init__(self, config, n_contexts=2):
-        # TODO: add n_timestamps to config, instead of directly as a kwarg
-        self.n_contexts = n_contexts
+    def __init__(self, config):
+        self.n_contexts = config.n_contexts
         super().__init__(config)
         self.query_time_layers = nn.ModuleList([
             orthogonal(MultiHeadLinear(self.num_attention_heads, self.attention_head_size, self.attention_head_size, bias=False))
@@ -150,9 +156,9 @@ class BertTemporalSelfAttention(BertSelfAttention):
         return weights
 
 class BertTemporalAttention(BertAttention):
-    def __init__(self, config, n_contexts):
+    def __init__(self, config):
         super().__init__(config)
-        self.self = BertTemporalSelfAttention(config, n_contexts)
+        self.self = BertTemporalSelfAttention(config)
     
     def forward(
         self,
@@ -182,9 +188,9 @@ class BertTemporalAttention(BertAttention):
     
 
 class BertTemporalLayer(BertLayer):
-    def __init__(self, config, n_contexts):
+    def __init__(self, config):
         super().__init__(config)
-        self.attention = BertTemporalAttention(config, n_contexts)
+        self.attention = BertTemporalAttention(config)
 
     def forward(
         self,
@@ -231,9 +237,9 @@ class BertTemporalLayer(BertLayer):
 
 
 class BertTemporalEncoder(BertEncoder):
-    def __init__(self, config, init_temporal_weights, n_contexts):
+    def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
-        self.layer = nn.ModuleList([BertTemporalLayer(config, n_contexts) for _ in range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList([BertTemporalLayer(config) for _ in range(config.num_hidden_layers)])
         if init_temporal_weights:
             self.init_temporal_weights()
     
@@ -315,10 +321,10 @@ class BertTemporalEncoder(BertEncoder):
         [layer.attention.self.init_temporal_weights() for layer in self.layer]
 
 class BertOrthogonalTemporalModel(BertModel):
-    def __init__(self, config, add_pooling_layer=True, n_contexts=2, init_temporal_weights=True):
+    def __init__(self, config, add_pooling_layer=True, init_temporal_weights=True):
         super().__init__(config, add_pooling_layer) # initializes embeddings and creates init_weights
-        self.encoder = BertTemporalEncoder(config, init_temporal_weights=init_temporal_weights, n_contexts=n_contexts)
-        self.n_contexts = n_contexts
+        self.encoder = BertTemporalEncoder(config, init_temporal_weights=init_temporal_weights)
+        self.n_contexts = config.n_contexts
         self.init_weights()
     
     def forward(
@@ -429,12 +435,11 @@ class BertOrthogonalTemporalModel(BertModel):
 
 
 class BertForOrthogonalMaskedLM(BertForMaskedLM):
-    def __init__(self, config, n_contexts=2, alpha=1, init_temporal_weights=True):
+    def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
-        self.bert = BertOrthogonalTemporalModel(config, add_pooling_layer=False, n_contexts=n_contexts,  
-                                                init_temporal_weights=init_temporal_weights)
+        self.bert = BertOrthogonalTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
         self.init_weights()
-        self.alpha=alpha
+        self.alpha=config.alpha
 
     def forward(
         self,

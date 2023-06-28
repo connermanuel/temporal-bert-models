@@ -21,9 +21,6 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
         "orthogonal": BertForOrthogonalMaskedLM,
         "bert": BertForMaskedLM
     }    
-    if model_architecture == "orthogonal":
-        config = AutoConfig.from_pretrained('bert-base-uncased')
-        model = BertForOrthogonalMaskedLM
     return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
 
 def main(args):
