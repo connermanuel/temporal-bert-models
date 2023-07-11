@@ -1,5 +1,5 @@
 import torch
-from transformers import BatchEncoding, AutoTokenizer, DataCollatorForLanguageModeling, Trainer
+from transformers import BatchEncoding, Trainer
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BatchEncoding
 from datasets import Dataset

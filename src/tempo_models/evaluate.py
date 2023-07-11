@@ -2,14 +2,14 @@
 Generalized evaluation script for various datasets and model architectures.
 Given a directory containing model checkpoints, evaluate all of those checkpoints.
 """
+from tempo_models.models.bert.orthogonal_weight_attention import BertForOrthogonalMaskedLM
+from tempo_models.models.bert.temporal_self_attention import BertForTemporalMaskedLM
+
 from torch import device as torch_device
-from models.orthogonal_weight_attention import BertForOrthogonalMaskedLM
-from models.temporal_self_attention import BertForTemporalMaskedLM
 from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling, AutoConfig
 from datasets import load_from_disk
 
 from utils import get_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, fix_timestamps, sort_by_timestamp, shuffle_batched
-import argparse
 import os
 import logging
 import json
@@ -23,7 +23,7 @@ def fetch_model(model_architecture: str, checkpoint_path: str):
     }    
     return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
 
-def main(args):
+def evaluate(args):
     ### Fix kwargs, create directories, and setup logging
     model_str = f"{args.model_architecture}"
     if args.model_architecture == "orthogonal":
@@ -143,61 +143,3 @@ def main(args):
             except OSError:
                 print(f"Could not evaluate {checkpoint_path}")
         
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Trains a model.")
-    parser.add_argument(
-        "-m", "--model_architecture",
-        help="The model architecture to train",
-        choices=["bert", "tempo_bert", "orthogonal", "naive"], required=True)
-    parser.add_argument(
-        "--n-contexts", 
-        help='Number of contexts/timestamps. Defaults to 2, the number of timestamps in the SemEval dataset.', 
-        type=int, default=2)
-    parser.add_argument(
-        "--data-dir", 
-        help="Path of the huggingface dataset.", required=True)
-    parser.add_argument(
-        "--checkpoint-path", 
-        help='If used, path of the huggingface checkpoint. Overrides checkpoint-group-dir.', default=None)
-    parser.add_argument(
-        "--checkpoint-group-dir", 
-        help='If used, path of directory containing huggingface checkpoints.', default=None)
-    parser.add_argument(
-        "--results-dir", 
-        help='Path to directory to store checkpoints to. Defaults to "results/{architecture}".', default=None)
-    parser.add_argument(
-        "--alpha", 
-        help="Regularization parameter. Defaults to 1. Only used for orthogonal model directory naming.",
-        type=float, default=1)
-    parser.add_argument(
-        "--batch-size", 
-        help="Evaluation batch size. Defaults to 16.",
-        type=int, default=16)
-    parser.add_argument(
-        "--no-cuda", help="If flag is used, block trainer from using cuda when available.",
-        action='store_true')
-    parser.add_argument(
-        "--use-fp16", help="If flag is used, use the fp16 backend.",
-        action='store_true')
-    parser.add_argument(
-        "--add-time-tokens", help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
-        choices=[None, "none", "string", "special"], default=None)
-    parser.add_argument(
-        "--process-dataset", help="Performs sorting and batch shuffling, and prepends time tokens if needed.",
-        action='store_true')
-    parser.add_argument(
-        "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
-    parser.add_argument(
-        "--split", help="The split of the dataset to use for evaluation. Defaults to test.",
-        default="test")    
-    parser.add_argument(
-        "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
-        type=int, default=0)
-    parser.add_argument(
-        "--f1", help="Indicates that we should evaluate span F1.", action="store_true")
-    parser.add_argument(
-        "--no-mask", help="Do not use a masked language modeling collator. Used when the dataset already has tokens masked out.", action="store_true")
-    
-    args = parser.parse_args()
-    main(args)

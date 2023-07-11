@@ -1,9 +1,10 @@
 # Remove local copies of data
 data
-output*
-results/*
+output
+results
 __pycache__
 run.log
+*.egg-info
 
 # Remove stuff that I used for local experimentation lol
 playground.ipynb
