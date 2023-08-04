@@ -2,26 +2,31 @@
 Generalized evaluation script for various datasets and model architectures.
 Given a directory containing model checkpoints, evaluate all of those checkpoints.
 """
-from tempo_models.models.bert.orthogonal_weight_attention import BertForOrthogonalMaskedLM
-from tempo_models.models.bert.temporal_self_attention import BertForTemporalMaskedLM
+from tempo_models.models.bert.orthogonal_bert import BertForOrthogonalMaskedLM, BertForOrthogonalSequenceClassification
+from tempo_models.models.bert.tempo_bert import BertForTemporalMaskedLM, BertForTemporalSequenceClassification
 
 from torch import device as torch_device
-from transformers import BertForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling, AutoConfig
+from transformers import BertForMaskedLM, AutoTokenizer, BertForSequenceClassification, TrainingArguments
 from datasets import load_from_disk
 
-from utils import get_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, fix_timestamps, sort_by_timestamp, shuffle_batched
+from tempo_models.utils.utils import get_collator, evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, sort_by_timestamp, NonShuffledTrainer
 import os
 import logging
 import json
 import tqdm
 
-def fetch_model(model_architecture: str, checkpoint_path: str):
-    dispatch_dict = {
-        "tempo_bert": BertForTemporalMaskedLM,
-        "orthogonal": BertForOrthogonalMaskedLM,
-        "bert": BertForMaskedLM
-    }    
-    return dispatch_dict[model_architecture].from_pretrained(checkpoint_path)
+
+MODELS = {
+    "tempo_bert_mlm": BertForTemporalMaskedLM,
+    "orthogonal_mlm": BertForOrthogonalMaskedLM,
+    "bert_mlm": BertForMaskedLM,
+    "tempo_bert_cls": BertForTemporalSequenceClassification,
+    "orthogonal_cls": BertForOrthogonalSequenceClassification,
+    "bert_cls": BertForSequenceClassification
+    }
+
+def fetch_model(model_architecture: str, checkpoint_path: str, task: str):
+    return MODELS[f"{model_architecture}_{task}"].from_pretrained(checkpoint_path)
 
 def evaluate(args):
     ### Fix kwargs, create directories, and setup logging
@@ -60,8 +65,6 @@ def evaluate(args):
         collator = get_collator(bert_tokenizer, do_masking=mask)
     elif args.add_time_tokens == "special":
         collator = get_collator(bert_tokenizer, n_tokens=1, do_masking=mask)
-    elif mask:
-        collator = DataCollatorForLanguageModeling(bert_tokenizer)
     else:
         collator = get_collator(bert_tokenizer, do_masking=mask)
 
@@ -80,7 +83,6 @@ def evaluate(args):
     logging.info(f"Processing the dataset")
     if args.process_dataset:
         dataset = sort_by_timestamp(dataset)
-        # dataset = shuffle_batched(dataset, args.batch_size)
         if args.add_time_tokens == "string":
             logging.info(f"Adding string time tokens")
             ## TODO
@@ -91,31 +93,41 @@ def evaluate(args):
     if args.save_dataset:
         logging.info(f"Saving the dataset to {args.save_dataset}")
         dataset.save_to_disk(args.save_dataset)
-    
 
     if "word_ids" in dataset.features:
         dataset = dataset.remove_columns("word_ids")
+    if "subreddit" in dataset.features:
+        dataset = dataset.remove_columns("subreddit") 
     if args.model_architecture == "bert" and "timestamps" in dataset.features:
         dataset = dataset.remove_columns("timestamps") 
-    else:
-        dataset = dataset.map(fix_timestamps, batched=True)
     
     ### Prepare evaluation setup
-    results = {
-        "perplexity": [],
-        "accuracy": [],
-        "mrr": [],
-        "paths": [],
-    }
-
     if args.no_cuda:
         device = torch_device("cpu")
     else:
         device = torch_device("cuda") 
     
+    if args.checkpoint_path:
+        model_dirs = [args.evaluate_path]
+    elif args.checkpoint_group_dir:
+        model_dirs = [path for path in os.listdir(args.checkpoint_group_dir) if "checkpoint" in path]
     
-    ### Evaluate models
     logging.info(f"Evaluating models...")
+
+    eval_args = TrainingArguments(
+
+    )
+
+    for dir in model_dirs:
+        model = fetch_model(args.model_architecture, dir, args.task)
+        trainer = NonShuffledTrainer(
+            model=model,
+            eval_dataset=dataset,
+            compute_metrics=metric_func,
+            collator=collator
+        )
+
+    ### Evaluate models
     def evaluate_path(checkpoint_path, architecture, f1, batch_size, results_dir):
         model = fetch_model(architecture, checkpoint_path)
         if f1:
