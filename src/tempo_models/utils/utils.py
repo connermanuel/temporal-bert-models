@@ -1,11 +1,15 @@
 import torch
 from transformers import BatchEncoding, Trainer
 from torch.nn.utils.rnn import pad_sequence
-from transformers import BatchEncoding
-from datasets import Dataset
+from collections import defaultdict
 
 import tqdm
 import math
+
+def to_list(tensor_or_iterable):
+    if isinstance(tensor_or_iterable, torch.Tensor):
+        return tensor_or_iterable.tolist()
+    return list(tensor_or_iterable)
 
 def add_zero_timestamp(dataset):
     """For a dataset with no timestamps, add the zero timestamp."""
@@ -14,21 +18,29 @@ def add_zero_timestamp(dataset):
         return examples
     return dataset.map(helper, batched=True)
 
-def get_collator(tokenizer, n_tokens=8, do_masking=True):
+def get_collator(tokenizer, n_tokens, do_masking=True, task="mlm"):
     """Generates a collator that masks and pads."""
     wwm_probability = 0.15
 
+    PAD_VALUES = defaultdict(lambda: 0)
+    PAD_VALUES['labels'] = -100
+    PAD_VALUES['timestamps'] = -2
+
     def collator(features):
-        """A data collator that skips over the first few tokens in the dataset."""
-        if do_masking:
+        """
+        A data collator that skips over the first few tokens in the dataset.
+        Input:
+            features: A list of inputs dictionaries.
+        """
+        if do_masking and task=="mlm":
             for feature in features:
                 # Randomly mask words. We exclude the first 8 tokens ([CLS] + time prefix) and the last one ([SEP])
-                mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 1))) < wwm_probability
+                mask = torch.rand((len(feature["input_ids"]) - (n_tokens + 2))) < wwm_probability
                 input_ids = torch.tensor(feature["input_ids"], requires_grad=False)
                 new_labels = torch.full(input_ids.shape, -100)
 
                 # When selecting the indices of words to mask, only start at index 8
-                masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + n_tokens
+                masked_idxs = torch.nonzero(mask, as_tuple=True)[0] + n_tokens + 1
                 new_labels[masked_idxs] = input_ids[masked_idxs]
                 feature["labels"] = new_labels
                 
@@ -43,9 +55,11 @@ def get_collator(tokenizer, n_tokens=8, do_masking=True):
         # Construct the return value
         retval = {}
         for key in features[0].keys():
-            tensors = [torch.tensor(feature[key]) for feature in features]
-            pad_value = -100 if key == "labels" else 0
-            retval[key] = pad_sequence(tensors, batch_first=True, padding_value=pad_value)
+            if task == "cls" and key == "labels":
+                retval[key] = torch.tensor([feature[key] for feature in features])
+            else:
+                tensors = [torch.tensor(feature[key]) for feature in features]
+                retval[key] = pad_sequence(tensors, batch_first=True, padding_value=PAD_VALUES[key])
             
         return BatchEncoding(retval) # Pads everything to right length
     
@@ -93,6 +107,7 @@ def evaluate_mlm(model, dataset, data_collator,
             ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
             total_ranks = torch.cat((total_ranks, ranks.cpu()))
             total_mrr += (1/ranks).sum().item()
+    print(total_cross_entropy, total_mrr, total_predictions, correct_predictions)
     perplexity = math.exp(total_cross_entropy / total_predictions)
     accuracy = 100 * correct_predictions / total_predictions
     mrr = total_mrr / total_predictions
@@ -162,7 +177,7 @@ def shuffle_batched(dataset, batch_size):
     return dataset.select(idxs)
 
 class NonShuffledTrainer(Trainer):
-    """Shuffles the training dataset while keeping batches intact."""
+    """A trainer that does not shuffle the batches, offering more flexibility in batch ordering."""
     def _get_train_sampler(self):
         return None
 
@@ -198,17 +213,16 @@ def add_special_time_tokens(dataset, tokenizer_len):
     return dataset
 
 def fix_timestamps(examples):
-        try:
-            examples['timestamps'] = torch.tensor(examples['timestamps']) + 2
-        except ValueError:
-            examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
-        return examples
+    examples['timestamps'] = [torch.tensor(a) + 2 for a in examples['timestamps']]
+    return examples
 
-def copy_weights(src: torch.nn.Module, dest: torch.nn.Module):
+def copy_weights(src: torch.nn.Module, dest: torch.nn.Module, prefix=None):
     """Copy the weights from the source model to the destination model."""
     sd = dest.state_dict()
     src_sd = src.state_dict()
     for k in src_sd:
-        sd[k] = src_sd[k]
+        k = f"{prefix}.k"
+        if k in sd:
+            sd[k] = src_sd[k]
     dest.load_state_dict(sd)
     return dest

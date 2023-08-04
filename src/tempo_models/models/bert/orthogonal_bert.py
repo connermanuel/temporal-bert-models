@@ -10,7 +10,7 @@ HF modeling bert: https://github.com/huggingface/transformers/blob/main/src/tran
 
 from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM, BertPreTrainedModel
 from transformers.modeling_utils import apply_chunking_to_forward
-from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput
+from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput, SequenceClassifierOutput
 from transformers import BertConfig
 
 import torch
@@ -18,49 +18,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.parametrizations import orthogonal
 
-import logger
+from tempo_models.models.multi_head_linear import MultiHeadLinear
+
 import math
 import warnings
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
+
+TIMESTAMP_PAD = 2
 
 class OrthogonalConfig(BertConfig):
-    def __init__(self, n_contexts, alpha, **kwargs):
+    def __init__(self, n_contexts=2, alpha=0, **kwargs):
         super().__init__(**kwargs)
         self.n_contexts = n_contexts
         self.alpha = alpha
-    
-class MultiHeadLinear(nn.Module):
-    """
-    Applies a batched linear transformation to incoming data. For each batch, compute `y = xA^T + b`.
-    
-    Expects an input of size (batch_size, num_heads, seq_len, in_features).
-    Returns an output of size (batch_size, num_heads, seq_len, out_features).
-    """
-    def __init__(self, num_heads: int, in_features: int, out_features: int, 
-                 bias: bool=True, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = nn.Parameter(torch.empty((num_heads, in_features, out_features), **factory_kwargs))
-        if bias:
-            self.bias = nn.Parameter(torch.empty((num_heads, 1, out_features), **factory_kwargs))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            nn.init.uniform_(self.bias, -bound, bound)
-    
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        out = torch.matmul(input, self.weight)
-        if self.bias is not None:
-            out = out + self.bias
-        return out
 
 class BertTemporalSelfAttention(BertSelfAttention):
     def __init__(self, config):
@@ -90,14 +60,13 @@ class BertTemporalSelfAttention(BertSelfAttention):
         Output:
             temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)        
         """
-        device = original_layer.device
-        original_layer = self.transpose_for_scores(original_layer)
-        temporal_conditioned_layer = torch.zeros(original_layer.shape, device=device)        
 
-        for val in torch.unique(timestamps):
-            mask = torch.unsqueeze(timestamps==val, 1)[..., None]
-            time_layer = time_layers[val]
-            temporal_conditioned_layer += (time_layer(original_layer) * mask)
+        # TODO: Optimize
+        original_layer = self.transpose_for_scores(original_layer)
+        timestamp_vals = torch.unique(timestamps[:, [0, -1]])
+        masks = [torch.unsqueeze(timestamps==val, 1)[..., None] for val in timestamp_vals]
+        temporal_conditioned_layers = [time_layers[val+TIMESTAMP_PAD](original_layer) * mask for val, mask in zip(timestamp_vals, masks)]
+        temporal_conditioned_layer = torch.stack(temporal_conditioned_layers, dim=0).sum(dim=0)
         
         return temporal_conditioned_layer
     
@@ -421,6 +390,7 @@ class BertOrthogonalTemporalModel(BertModel):
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
+        
 
         return BaseModelOutputWithPoolingAndCrossAttentions(
             last_hidden_state=sequence_output,
@@ -432,6 +402,13 @@ class BertOrthogonalTemporalModel(BertModel):
     
     def get_temporal_layer_weights(self):
         return self.encoder.get_temporal_layer_weights()
+    
+    def get_weight_penalty(self):
+        penalty = 0
+        layer_weights = self.bert.get_temporal_layer_weights()
+        for query_weight, key_weight in layer_weights:
+            penalty += F.mse_loss(query_weight, key_weight)
+        return penalty
 
 
 class BertForOrthogonalMaskedLM(BertForMaskedLM):
@@ -440,40 +417,7 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
         self.bert = BertOrthogonalTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
         self.init_weights()
         self.alpha=config.alpha
-
-class BertForMaskedLM(BertPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"pooler"]
-    _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias", r"cls.predictions.decoder.weight"]
-
-    def __init__(self, config):
-        super().__init__(config)
-
-        if config.is_decoder:
-            logger.warning(
-                "If you want to use `BertForMaskedLM` make sure `config.is_decoder=False` for "
-                "bi-directional self-attention."
-            )
-
-        self.bert = BertModel(config, add_pooling_layer=False)
-        self.cls = BertOnlyMLMHead(config)
-
-        # Initialize weights and apply final processing
-        self.post_init()
-
-    def get_output_embeddings(self):
-        return self.cls.predictions.decoder
-
-    def set_output_embeddings(self, new_embeddings):
-        self.cls.predictions.decoder = new_embeddings
-
-    @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    @add_code_sample_docstrings(
-        checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=MaskedLMOutput,
-        config_class=_CONFIG_FOR_DOC,
-        expected_output="'paris'",
-        expected_loss=0.88,
-    )
+    
     def forward(
         self,
         input_ids=None,
@@ -532,18 +476,111 @@ class BertForMaskedLM(BertPreTrainedModel):
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()  # -100 index = padding token
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
+            # TODO: Optimize 
             if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
-                layer_weights = self.bert.get_temporal_layer_weights()
-                for query_weight, key_weight in layer_weights:
-                    masked_lm_loss += self.alpha * F.mse_loss(query_weight, key_weight)
+                masked_lm_loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
             return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
-
+        
         return MaskedLMOutput(
             loss=masked_lm_loss,
             logits=prediction_scores,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+    
+class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
+    def __init__(self, config, init_temporal_weights=True):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.config = config
+        self.alpha=config.alpha
+
+        self.bert = BertOrthogonalTemporalModel(config, init_temporal_weights=init_temporal_weights)
+        classifier_dropout = (
+            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        )
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+
+        self.post_init()        
+        self.init_weights()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        timestamps: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        outputs = self.bert(
+            input_ids,
+            timestamps=timestamps,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        pooled_output = outputs[1]
+
+        pooled_output = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output)
+
+        loss = None
+        if labels is not None:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
+                loss_fct = nn.MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = nn.BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
+
+            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
+                loss += self.alpha * self.bert.get_weight_penalty()
+
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )

@@ -3,16 +3,20 @@ Implements a modification of the self-attention layer that interweaves temporal 
 Based on the Huggingface transformers library, using BertSelfAttention as a superclass.
 """
 
-from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM
+from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM, BertPreTrainedModel
 from transformers.modeling_utils import apply_chunking_to_forward
-from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput
+from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput, SequenceClassifierOutput
 from transformers import BertConfig
 import torch.nn as nn
 import torch
 import math
 import warnings
-import joblib
 import os
+
+
+from typing import Optional, Tuple, Union
+
+TIMESTAMP_PAD = 2
 
 class TempoBertConfig(BertConfig):
     def __init__(self, n_contexts, **kwargs):
@@ -34,7 +38,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
         encoder_attention_mask=None,
         output_attentions=False,
         use_tempo=True,
-        attention_fname=None
     ):
         mixed_query_layer = self.query(hidden_states)
         # Since the time representation augments both the key and query vectors, one time layer should
@@ -71,8 +74,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
                 raise
         else:
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        if attention_fname:
-            joblib.dump(attention_scores, attention_fname)
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
@@ -332,6 +333,7 @@ class BertTemporalModel(BertModel):
             raise ValueError(f"You need to pass in a list of timestamps, ranging from 0 to {self.n_time_periods - 1}")
         elif timestamps.shape != input_ids.shape:
             raise ValueError(f'Timestamps not properly generated: must be same shape as input ids')
+        timestamps = timestamps + TIMESTAMP_PAD
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
@@ -473,6 +475,99 @@ class BertForTemporalMaskedLM(BertForMaskedLM):
         return MaskedLMOutput(
             loss=masked_lm_loss,
             logits=prediction_scores,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+    
+class BertForTemporalSequenceClassification(BertPreTrainedModel):
+    def __init__(self, config, init_temporal_weights=True):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.config = config
+
+        self.bert = BertTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
+        classifier_dropout = (
+            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        )
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+
+        self.post_init()        
+        self.init_weights()
+    
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        timestamps: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        outputs = self.bert(
+            input_ids,
+            timestamps=timestamps,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        pooled_output = outputs[1]
+
+        pooled_output = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output)
+
+        loss = None
+        if labels is not None:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
+                loss_fct = nn.MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = nn.BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
+
+            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
+                loss += self.alpha * self.bert.get_weight_penalty()
+
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
