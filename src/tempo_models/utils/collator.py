@@ -1,10 +1,19 @@
-from transformers import PreTrainedTokenizerBase
-from transformers.data.data_collator import DataCollatorMixin
-from typing import Optional, List, Union, Any, Dict, Mapping, Tuple
-from tempo_models.utils.utils import to_list
+import torch
+from dataclasses import dataclass
+from transformers import PreTrainedTokenizerBase, BatchEncoding
+from typing import Optional, List, Union, Any, Dict, Mapping, Tuple, Iterable
+from tempo_models.utils.utils import to_list, to_tensor
 from tempo_models.models.bert.orthogonal_bert import TIMESTAMP_PAD
 
-class DataCollatorForLanguageModeling(DataCollatorMixin):
+def insert_padded_column(batch: BatchEncoding, column_name: str, column: Iterable, pad_value: Union[int, float]):
+    sequence_length = batch["input_ids"].shape[1]
+    batch[column_name] = torch.tensor([
+        to_list(value) + [pad_value] * (sequence_length - len(value)) for value in column
+    ], dtype=torch.int)
+    return batch
+
+@dataclass
+class CollatorMLM:
     """
     Data collator used for timestamps-augmented language modeling. 
     Inputs are dynamically padded to the maximum length of a batch if they are not all of the same length.
@@ -14,9 +23,7 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
     mlm: bool = True
     mlm_probability: float = 0.15
     pad_to_multiple_of: Optional[int] = None
-    tf_experimental_compile: bool = False
     timestamp_pad_value: int = -TIMESTAMP_PAD
-    return_tensors: str = "pt"
 
     def __post_init__(self):
         if self.mlm and self.tokenizer.mask_token is None:
@@ -25,39 +32,34 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
                 "You should pass `mlm=False` to train on causal language modeling instead."
             )
 
-    def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
-        # Handle dict or lists with proper padding and conversion to tensor.
-
-        has_timestamps = "timestamps" in examples[0].keys()
+    def __call__(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
+        timestamps = [example["timestamps"] for example in examples] if "timestamps" in examples[0].keys() else None
+        examples_no_ts = [{k: v for k, v in example.items() if k != "timestamps"} for example in examples]
+        
         if isinstance(examples[0], Mapping):
-            batch = self.tokenizer.pad(examples, return_tensors="pt", pad_to_multiple_of=self.pad_to_multiple_of)
+            batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt", pad_to_multiple_of=self.pad_to_multiple_of)
         else:
             raise AssertionError("Dataset in the wrong format. Each entry must be a mapping.")
 
         # If special token mask has been preprocessed, pop it from the dict.
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         if self.mlm:
-            batch["input_ids"], batch["labels"] = self.torch_mask_tokens(
+            batch["input_ids"], batch["labels"] = self.mask_tokens(
                 batch["input_ids"], special_tokens_mask=special_tokens_mask)
         else:
             labels = batch["input_ids"].clone()
             if self.tokenizer.pad_token_id is not None:
                 labels[labels == self.tokenizer.pad_token_id] = -100
             batch["labels"] = labels
-        
-        if has_timestamps:
-            sequence_length = batch["input_ids"].shape[1]
-            batch["timestamps"] = [
-                to_list(timestamp) + [self.timestamp_pad_value] * (sequence_length - len(timestamp)) for timestamp in batch["timestamps"]
-            ]
 
+        if timestamps:
+            batch = insert_padded_column(batch, "timestamps", timestamps, self.timestamp_pad_value)
         return batch
 
-    def torch_mask_tokens(self, inputs: Any, special_tokens_mask: Optional[Any] = None) -> Tuple[Any, Any]:
+    def mask_tokens(self, inputs: Any, special_tokens_mask: Optional[Any] = None) -> Tuple[Any, Any]:
         """
         Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original.
         """
-        import torch
 
         labels = inputs.clone()
         # We sample a few tokens in each sequence for MLM training (with probability `self.mlm_probability`)
@@ -85,3 +87,16 @@ class DataCollatorForLanguageModeling(DataCollatorMixin):
 
         # The rest of the time (10% of the time) we keep the masked input tokens unchanged
         return inputs, labels
+
+@dataclass
+class CollatorCLS:
+    tokenizer: PreTrainedTokenizerBase
+    timestamp_pad_value: int = -TIMESTAMP_PAD
+
+    def __call__(self, examples: List[Dict[str, Any]]) -> Dict[str, Any]:
+        timestamps = [example["timestamps"] for example in examples] if "timestamps" in examples[0].keys() else None
+        examples_no_ts = [{k: v for k, v in example.items() if k != "timestamps"} for example in examples]
+        batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt")
+        if timestamps:
+            batch = insert_padded_column(batch, "timestamps", timestamps, self.timestamp_pad_value)
+        return batch

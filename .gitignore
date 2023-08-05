@@ -9,6 +9,7 @@ run.log
 # Remove stuff that I used for local experimentation lol
 playground.ipynb
 .ipynb_checkpoints
+scratch.py
 
 # Local junk
 *desktop.ini*

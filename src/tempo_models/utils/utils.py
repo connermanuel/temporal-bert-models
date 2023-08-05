@@ -11,6 +11,11 @@ def to_list(tensor_or_iterable):
         return tensor_or_iterable.tolist()
     return list(tensor_or_iterable)
 
+def to_tensor(tensor_or_iterable):
+    if isinstance(tensor_or_iterable, torch.Tensor):
+        return tensor_or_iterable
+    return torch.Tensor(tensor_or_iterable)
+
 def add_zero_timestamp(dataset):
     """For a dataset with no timestamps, add the zero timestamp."""
     def helper(examples):
