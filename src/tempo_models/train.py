@@ -3,10 +3,11 @@ from torch.cuda import empty_cache
 from datasets import load_from_disk
 from tempo_models.models.bert.orthogonal_bert import BertForOrthogonalMaskedLM, BertForOrthogonalSequenceClassification, OrthogonalConfig
 from tempo_models.models.bert.tempo_bert import BertForTemporalMaskedLM, BertForTemporalSequenceClassification, TempoBertConfig
+from tempo_models.utils.collator import CollatorCLS, CollatorMLM
 from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoModelForSequenceClassification, TrainingArguments, BertConfig
 from transformers.models.bert.modeling_bert import BertForMaskedLM, BertForSequenceClassification
 
-from tempo_models.utils.utils import get_collator, NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens, copy_weights, fix_timestamps
+from tempo_models.utils.utils import NonShuffledTrainer, sort_by_timestamp, shuffle_batched, add_special_time_tokens, copy_weights
 import logging
 import gc
 import os
@@ -83,12 +84,10 @@ def train(args):
         bert_tokenizer.add_tokens(special_tokens)
     
     mask = not args.no_mask
-    if args.add_time_tokens == "string":
-        collator = get_collator(bert_tokenizer, n_tokens=7, do_masking=mask, task=args.task)
-    elif args.add_time_tokens == "special":
-        collator = get_collator(bert_tokenizer, n_tokens=1, do_masking=mask, task=args.task)
-    else:
-        collator = get_collator(bert_tokenizer, n_tokens=0, do_masking=mask, task=args.task)
+    if args.task == "mlm":
+        collator = CollatorMLM(bert_tokenizer)
+    elif args.task == "cls":
+        collator = CollatorCLS(bert_tokenizer)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")

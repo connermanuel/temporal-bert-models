@@ -317,7 +317,10 @@ class BertOrthogonalTemporalModel(BertModel):
             the model is configured as a decoder.
         encoder_attention_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
             Mask to avoid performing attention on the padding token indices of the encoder input. This mask is used in
+            Mask to avoid performing attention on the padding token indices of the encoder input. This mask is used in
             the cross-attention if the model is configured as a decoder. Mask values selected in ``[0, 1]``:
+            the cross-attention if the model is configured as a decoder. Mask values selected in ``[0, 1]``:
+
 
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
@@ -338,7 +341,7 @@ class BertOrthogonalTemporalModel(BertModel):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
         
         if timestamps is None:
-            raise ValueError(f"You need to pass in a list of timestamps, ranging from 0 to {self.n_time_periods - 1}")
+            raise ValueError(f"You need to pass in a list of timestamps, ranging from 0 to {self.n_contexts - 1}")
         elif timestamps.shape != input_ids.shape:
             raise ValueError(f'Timestamps not properly generated: must be same shape as input ids')
 
@@ -544,7 +547,6 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
         )
 
         pooled_output = outputs[1]
-
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 

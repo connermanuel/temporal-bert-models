@@ -2,7 +2,6 @@ from tempo_models.utils.parser import parser
 from tempo_models.evaluate import evaluate
 
 if __name__ == "__main__":
-
     eval_args = parser.add_argument_group("Evaluation arguments")
     eval_args.add_argument(
         "--checkpoint-dir", 

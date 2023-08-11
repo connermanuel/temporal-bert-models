@@ -86,34 +86,45 @@ def evaluate_mlm(model, dataset, data_collator,
     Compute token-level perplexity, accuracy, and MRR metrics.
     Note that the perplexity here is over subwords, not words.
     """
-    model.eval()
-    model.to(device)
-    total_cross_entropy = 0.0
+    model.eval().to(device)
+
+    mean_cross_entropy = 0
     total_mrr = 0.0
     total_predictions = 0
     correct_predictions = 0
     total_ranks = torch.tensor([], dtype=int)
+    num_iterations = math.ceil(len(dataset) / batch_size)
+
     with torch.no_grad():
-        for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=math.ceil(len(dataset) / batch_size)):
-            ipt = data_collator(data).to(device)
-            out = model(**ipt)
+        for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=num_iterations):
+            input = data_collator(data).to(device)
+            labels = input["labels"]
+
+            out = model(**input)
+
             logits = out['logits']
-            num_predictions = (ipt['labels'] != pad_id).sum().item()
+
+            num_predictions = (labels != pad_id).sum().item()
             total_predictions += num_predictions
-            total_cross_entropy += out['loss'].item() * num_predictions
+            pct_new = num_predictions / total_predictions
+
+            mean_cross_entropy = (mean_cross_entropy * (1 - pct_new)) + out["loss"].item() * pct_new
+
             batch_correct_predictions = (
-              (ipt['labels'] != pad_id) &
-              (ipt['labels'] == logits.argmax(2))).sum().item()
+              (labels != pad_id) &
+              (labels == logits.argmax(2))).sum().item()
             correct_predictions += batch_correct_predictions
-            idx = torch.nonzero(ipt['labels'] != pad_id)
-            labels = ipt['labels'][idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
+            
+            idx = torch.nonzero(labels != pad_id)
+            labels = labels[idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
             logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
             logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
+
             ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
             total_ranks = torch.cat((total_ranks, ranks.cpu()))
             total_mrr += (1/ranks).sum().item()
-    print(total_cross_entropy, total_mrr, total_predictions, correct_predictions)
-    perplexity = math.exp(total_cross_entropy / total_predictions)
+    
+    perplexity = math.exp(mean_cross_entropy)
     accuracy = 100 * correct_predictions / total_predictions
     mrr = total_mrr / total_predictions
     return {
