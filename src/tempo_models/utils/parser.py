@@ -38,7 +38,7 @@ data_args.add_argument(
     "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
     type=int, default=0)
 data_args.add_argument(
-    "--process-dataset", help="Performs sorting and batch shuffling, and prepends time tokens if needed.",
+    "--skip-process", help="Skips the processing of the dataset (shuffling and prepending time tokens.)",
     action='store_true')
 data_args.add_argument(
     "--save-dataset", help="After processing, stores the dataset to this location.", default=None)

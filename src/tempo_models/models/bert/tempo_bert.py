@@ -37,7 +37,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
         encoder_hidden_states=None,
         encoder_attention_mask=None,
         output_attentions=False,
-        use_tempo=True,
     ):
         mixed_query_layer = self.query(hidden_states)
         # Since the time representation augments both the key and query vectors, one time layer should
@@ -61,19 +60,16 @@ class BertTemporalSelfAttention(BertSelfAttention):
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
         # Take the dot product between "query" and "key" augmented by time.
-        if use_tempo:
-            time_layer_normalized = time_layer / time_layer.norm(2.0)
-            attention_scores = torch.matmul(
-                query_layer, time_layer.transpose(-1, -2)
-            ).matmul(time_layer_normalized)
-            try:
-                attention_scores = torch.matmul(attention_scores, key_layer.transpose(-1, -2))
-            except RuntimeError:
-                print(attention_scores.shape)
-                print(key_layer.transpose(-1, 2).shape)
-                raise
-        else:
-            attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        time_layer_normalized = time_layer / time_layer.norm(2.0)
+        attention_scores = torch.matmul(
+            query_layer, time_layer.transpose(-1, -2)
+        ).matmul(time_layer_normalized)
+        try:
+            attention_scores = torch.matmul(attention_scores, key_layer.transpose(-1, -2))
+        except RuntimeError:
+            print(attention_scores.shape)
+            print(key_layer.transpose(-1, 2).shape)
+            raise
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
@@ -111,8 +107,6 @@ class BertTemporalAttention(BertAttention):
         encoder_hidden_states=None,
         encoder_attention_mask=None,
         output_attentions=False,
-        use_tempo=True,
-        attention_fname=None
     ):
         self_outputs = self.self(
             hidden_states,
@@ -122,8 +116,6 @@ class BertTemporalAttention(BertAttention):
             encoder_hidden_states,
             encoder_attention_mask,
             output_attentions,
-            use_tempo=use_tempo,
-            attention_fname=attention_fname
         )
         attention_output = self.output(self_outputs[0], hidden_states)
         outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
@@ -143,8 +135,6 @@ class BertTemporalLayer(BertLayer):
         encoder_hidden_states=None,
         encoder_attention_mask=None,
         output_attentions=False,
-        use_tempo=True,
-        attention_fname=None
     ):
         self_attention_outputs = self.attention(
             hidden_states,
@@ -152,8 +142,6 @@ class BertTemporalLayer(BertLayer):
             attention_mask,
             head_mask,
             output_attentions=output_attentions,
-            use_tempo=use_tempo,
-            attention_fname=attention_fname
         )
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
@@ -169,8 +157,6 @@ class BertTemporalLayer(BertLayer):
                 encoder_hidden_states,
                 encoder_attention_mask,
                 output_attentions,
-                use_tempo=use_tempo,
-                attention_fname=attention_fname
             )
             attention_output = cross_attention_outputs[0]
             outputs = outputs + cross_attention_outputs[1:]  # add cross attentions if we output attention weights
@@ -199,19 +185,12 @@ class BertTemporalEncoder(BertEncoder):
         output_attentions=False,
         output_hidden_states=False,
         return_dict=False,
-        use_tempo=True,
-        attention_dir=None
     ):
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
 
-        layer_attention_fname = None
-        if attention_dir and not os.path.exists(attention_dir):
-            os.makedirs(attention_dir)
         for i, layer_module in enumerate(self.layer):
-            if attention_dir:
-                layer_attention_fname = attention_dir + f'/{i}.pkl'
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -233,8 +212,6 @@ class BertTemporalEncoder(BertEncoder):
                     layer_head_mask,
                     encoder_hidden_states,
                     encoder_attention_mask,
-                    use_tempo=use_tempo,
-                    attention_fname=layer_attention_fname
                 )
             else:
                 layer_outputs = layer_module(
@@ -245,8 +222,6 @@ class BertTemporalEncoder(BertEncoder):
                     encoder_hidden_states,
                     encoder_attention_mask,
                     output_attentions,
-                    use_tempo=use_tempo,
-                    attention_fname=layer_attention_fname
                 )
 
             hidden_states = layer_outputs[0]
@@ -300,8 +275,6 @@ class BertTemporalModel(BertModel):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
-        use_tempo=True,
-        attention_dir=None
     ):
         r"""
         encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`):
@@ -381,8 +354,6 @@ class BertTemporalModel(BertModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            use_tempo=use_tempo,
-            attention_dir=attention_dir
         )
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
@@ -420,8 +391,6 @@ class BertForTemporalMaskedLM(BertForMaskedLM):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
-        use_tempo=True,
-        attention_dir=None,
         **kwargs
     ):
         """
@@ -456,8 +425,6 @@ class BertForTemporalMaskedLM(BertForMaskedLM):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            use_tempo=use_tempo,
-            attention_dir=attention_dir
         )
 
         sequence_output = outputs[0]

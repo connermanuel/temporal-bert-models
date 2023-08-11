@@ -2,9 +2,11 @@ import torch
 from transformers import BatchEncoding, Trainer
 from torch.nn.utils.rnn import pad_sequence
 from collections import defaultdict
+from datasets import Dataset
 
 import tqdm
 import math
+import inspect
 
 def to_list(tensor_or_iterable):
     if isinstance(tensor_or_iterable, torch.Tensor):
@@ -242,3 +244,10 @@ def copy_weights(src: torch.nn.Module, dest: torch.nn.Module, prefix=None):
             sd[k] = src_sd[k]
     dest.load_state_dict(sd)
     return dest
+
+def remove_unused_columns(dataset: Dataset, model_arch: torch.nn.Module):
+    """Removes from the dataset columns that are not used by the model's forward call."""
+    signature = inspect.signature(model_arch.forward)
+    signature_columns = list(signature.parameters.keys()) + ["label", "label_ids"]
+    ignored_columns = list(set(dataset.column_names) - set(signature_columns))
+    return dataset.remove_columns(ignored_columns)

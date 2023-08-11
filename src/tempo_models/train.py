@@ -98,8 +98,7 @@ def train(args):
             dataset[k] = dataset[k].select(range(min(args.sample, len(dataset[k]))))
     
     logging.info(f"Processing the dataset")
-    if args.process_dataset:
-        dataset = sort_by_timestamp(dataset)
+    if not args.skip_process:
         for key in dataset.keys():
             dataset[key] = shuffle_batched(dataset[key], args.batch_size)
         if args.add_time_tokens == "string":

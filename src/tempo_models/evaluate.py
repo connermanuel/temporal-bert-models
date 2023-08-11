@@ -10,7 +10,7 @@ from tempo_models.utils.metrics import create_metric_func, mlm_metric_accuracy, 
 from transformers import BertForMaskedLM, AutoTokenizer, BertForSequenceClassification, TrainingArguments
 from datasets import load_from_disk
 
-from tempo_models.utils.utils import evaluate_mlm, evaluate_span_accuracy, add_special_time_tokens, NonShuffledTrainer
+from tempo_models.utils.utils import evaluate_mlm, add_special_time_tokens, NonShuffledTrainer, remove_unused_columns
 import os
 import logging
 import json
@@ -81,7 +81,7 @@ def evaluate(args):
         dataset = dataset.select(range(min(args.sample, len(dataset))))
     
     logging.info(f"Processing the dataset")
-    if args.process_dataset:
+    if not args.skip_process:
         if args.add_time_tokens == "string":
             logging.info(f"Adding string time tokens")
             ## TODO
@@ -124,20 +124,25 @@ def evaluate(args):
             "weighted_f1": cls_metric_weighted_f1
         })
 
+    dataset = remove_unused_columns(dataset, MODELS[f"{args.model_architecture}_{args.task}"])
+
     dataset = dataset.remove_columns(["timestamps", "subreddit"])
     results = {}
     for dir in tqdm.tqdm(model_dirs):
+        
         model = fetch_model(args.model_architecture, dir, args.task)
-        # trainer = NonShuffledTrainer(
-        #     model=model,
-        #     args=eval_args,
-        #     eval_dataset=dataset,
-        #     compute_metrics=metric_func,
-        #     data_collator=collator
-        # )
 
-        # model_results = trainer.evaluate()
-        model_results = evaluate_mlm(model, dataset, collator)
+        if args.task == "cls":
+            trainer = NonShuffledTrainer(
+                model=model,
+                args=eval_args,
+                eval_dataset=dataset,
+                compute_metrics=metric_func,
+                data_collator=collator
+            )
+            model_results = trainer.evaluate()
+        else:
+            model_results = evaluate_mlm(model, dataset, collator)
         results[dir] = model_results
         
         with open(f"{args.results_dir}/results.json", "w") as f:
