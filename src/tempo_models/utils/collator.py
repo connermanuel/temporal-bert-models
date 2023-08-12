@@ -5,12 +5,11 @@ from typing import Optional, List, Union, Any, Dict, Mapping, Tuple, Iterable
 from tempo_models.utils.utils import to_list, to_tensor
 from tempo_models.models.bert.orthogonal_bert import TIMESTAMP_PAD
 
-def insert_padded_column(batch: BatchEncoding, column_name: str, column: Iterable, pad_value: Union[int, float]):
-    sequence_length = batch["input_ids"].shape[1]
-    batch[column_name] = torch.tensor([
-        to_list(value) + [pad_value] * (sequence_length - len(value)) for value in column
+
+def pad_column(seq_len: int, column: Iterable, pad_value: Union[int, float]):
+    return torch.tensor([
+        to_list(value) + [pad_value] * (seq_len - len(value)) for value in column
     ], dtype=torch.int)
-    return batch
 
 @dataclass
 class CollatorMLM:
@@ -24,6 +23,7 @@ class CollatorMLM:
     mlm_probability: float = 0.15
     pad_to_multiple_of: Optional[int] = None
     timestamp_pad_value: int = -TIMESTAMP_PAD
+    timestamp_mask_value: int = -1
 
     def __post_init__(self):
         if self.mlm and self.tokenizer.mask_token is None:
@@ -40,23 +40,23 @@ class CollatorMLM:
             batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt", pad_to_multiple_of=self.pad_to_multiple_of)
         else:
             raise AssertionError("Dataset in the wrong format. Each entry must be a mapping.")
+        if timestamps:
+            timestamps = pad_column(batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value)
 
         # If special token mask has been preprocessed, pop it from the dict.
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         if self.mlm:
-            batch["input_ids"], batch["labels"] = self.mask_tokens(
-                batch["input_ids"], special_tokens_mask=special_tokens_mask)
+            batch["input_ids"], batch["labels"], timestamps = self.mask_tokens(
+                batch["input_ids"], timestamps, special_tokens_mask=special_tokens_mask)
         else:
             labels = batch["input_ids"].clone()
             if self.tokenizer.pad_token_id is not None:
                 labels[labels == self.tokenizer.pad_token_id] = -100
             batch["labels"] = labels
-
-        if timestamps:
-            batch = insert_padded_column(batch, "timestamps", timestamps, self.timestamp_pad_value)
+        
         return batch
 
-    def mask_tokens(self, inputs: Any, special_tokens_mask: Optional[Any] = None) -> Tuple[Any, Any]:
+    def mask_tokens(self, inputs: Any, timestamps: Any, special_tokens_mask: Optional[Any] = None) -> Tuple[Any, Any]:
         """
         Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original.
         """
@@ -79,6 +79,8 @@ class CollatorMLM:
         # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
         indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
         inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
+        if timestamps:
+            timestamps[indices_replaced] = self.timestamp_mask_value
 
         # 10% of the time, we replace masked input tokens with random word
         indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
@@ -86,7 +88,7 @@ class CollatorMLM:
         inputs[indices_random] = random_words[indices_random]
 
         # The rest of the time (10% of the time) we keep the masked input tokens unchanged
-        return inputs, labels
+        return inputs, labels, timestamps
 
 @dataclass
 class CollatorCLS:
@@ -98,5 +100,5 @@ class CollatorCLS:
         examples_no_ts = [{k: v for k, v in example.items() if k != "timestamps"} for example in examples]
         batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt")
         if timestamps:
-            batch = insert_padded_column(batch, "timestamps", timestamps, self.timestamp_pad_value)
+            batch["timestamps"] = pad_column(batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value)
         return batch
