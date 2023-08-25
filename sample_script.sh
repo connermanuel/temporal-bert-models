@@ -1,7 +1,7 @@
 # First: train upstream masked language modeling task on the news dataset
 
-UPSTREAM_DATA_DIR = "data/reddit/processed/news_small"
-OUTPUT_DIR = "output/reddit"
+UPSTREAM_DATA_DIR = data/reddit/processed/news_small
+OUTPUT_DIR = output/reddit
 
 python run_train.py	-m bert \
     --task mlm \
@@ -50,7 +50,7 @@ python run_train.py	-m orthogonal \
 
 # If you want to run evaluation. Note that the auto batch utility doesn't work here.
 
-RESULTS_DIR = "results/reddit"
+RESULTS_DIR = results/reddit
 python run_evaluate.py	-m bert \
     --task mlm \
     --n-contexts 12 \
@@ -95,12 +95,12 @@ python run_evaluate.py	-m orthogonal \
 # Then: load the best checkpoint from each architecture and train on the downstream task.
 # The exact checkpoint number will depend on the batch size and number of epochs, so just be sure to check the output directory when done. 
 
-DOWNSTREAM_DATA_DIR = "data/reddit/processed/news_psp"
+DOWNSTREAM_DATA_DIR = data/reddit/processed/news_psp
 
-BERT_CHECKPOINT = "$OUTPUT_DIR/bert_1M/checkpoint-212500"
-TOKEN_CHECKPOINT = "$OUTPUT_DIR/token_1M/checkpoint-212500"
-TEMPOBERT_CHECKPOINT = "$OUTPUT_DIR/tempobert_1M/checkpoint-212500"
-ORTHOGONAL_CHECKPOINT = "$OUTPUT_DIR/orthogonal_1M/checkpoint-212500"
+BERT_CHECKPOINT = $OUTPUT_DIR/bert_1M/checkpoint-212500
+TOKEN_CHECKPOINT = $OUTPUT_DIR/token_1M/checkpoint-212500
+TEMPOBERT_CHECKPOINT = $OUTPUT_DIR/tempobert_1M/checkpoint-212500
+ORTHOGONAL_CHECKPOINT = $OUTPUT_DIR/orthogonal_1M/checkpoint-212500
 
 python run_train.py	-m bert \
     --task cls \
@@ -157,7 +157,7 @@ python run_train.py	-m orthogonal \
 
 # If you want to run evaluation. Note that the auto batch utility doesn't work here.
 
-RESULTS_DIR = "results/reddit"
+RESULTS_DIR = results/reddit
 python run_evaluate.py	-m bert \
     --task mlm \
     --n-contexts 12 \
