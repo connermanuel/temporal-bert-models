@@ -1,12 +1,12 @@
 @REM First: train upstream masked language modeling task on the news dataset
 
-set UPSTREAM_DATA_DIR="data/reddit/processed/news_small"
-set OUTPUT_DIR="output/reddit"
+set UPSTREAM_DATA_DIR=data/reddit/processed/news_small_trunc
+set OUTPUT_DIR=output/reddit
 
 python run_train.py	-m bert ^
     --task mlm ^
     --n-contexts 12 ^
-    --batch-size 8 ^
+    --batch-size 32 ^
     --num-epochs 5 ^
     --lr 5e-5 ^
     --data-dir %UPSTREAM_DATA_DIR% ^
@@ -17,7 +17,7 @@ python run_train.py	-m bert ^
 python run_train.py	-m bert ^
     --task mlm ^
     --n-contexts 12 ^
-    --batch-size 8 ^
+    --batch-size 32 ^
     --num-epochs 5 ^
     --lr 5e-5 ^
     --data-dir %UPSTREAM_DATA_DIR% ^
@@ -29,7 +29,7 @@ python run_train.py	-m bert ^
 python run_train.py	-m tempo_bert ^
     --task mlm ^
     --n-contexts 12 ^
-    --batch-size 8 ^
+    --batch-size 32 ^
     --num-epochs 5 ^
     --lr 5e-5 ^
     --data-dir %UPSTREAM_DATA_DIR% ^
@@ -40,7 +40,7 @@ python run_train.py	-m tempo_bert ^
 python run_train.py	-m orthogonal ^
     --task mlm ^
     --n-contexts 12 ^
-    --batch-size 8 ^
+    --batch-size 32 ^
     --num-epochs 5 ^
     --lr 5e-5 ^
     --data-dir %UPSTREAM_DATA_DIR% ^
@@ -50,7 +50,7 @@ python run_train.py	-m orthogonal ^
 
 @REM If you want to run evaluation. Note that the auto batch utility doesn't work here.
 
-set RESULTS_DIR = "results/reddit"
+set RESULTS_DIR = results/reddit
 python run_evaluate.py	-m bert ^
     --task mlm ^
     --n-contexts 12 ^
