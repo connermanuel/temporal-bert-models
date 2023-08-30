@@ -3,16 +3,16 @@
 set UPSTREAM_DATA_DIR=data/reddit/processed/news_small_trunc
 set OUTPUT_DIR=output/reddit
 
-python run_train.py	-m bert ^
-    --task mlm ^
-    --n-contexts 12 ^
-    --batch-size 32 ^
-    --num-epochs 5 ^
-    --lr 5e-5 ^
-    --data-dir %UPSTREAM_DATA_DIR% ^
-    --output-dir "%OUTPUT_DIR%/bert_1M" ^
-    --use-fp16 ^
-    --auto-batch
+@REM python run_train.py	-m bert ^
+@REM     --task mlm ^
+@REM     --n-contexts 12 ^
+@REM     --batch-size 32 ^
+@REM     --num-epochs 5 ^
+@REM     --lr 5e-5 ^
+@REM     --data-dir %UPSTREAM_DATA_DIR% ^
+@REM     --output-dir "%OUTPUT_DIR%/bert_1M" ^
+@REM     --use-fp16 
+@REM     --auto-batch
 
 python run_train.py	-m bert ^
     --task mlm ^
@@ -51,11 +51,10 @@ python run_train.py	-m orthogonal ^
 @REM If you want to run evaluation. Note that the auto batch utility doesn't work here.
 
 set RESULTS_DIR = results/reddit
-python run_evaluate.py	-m bert ^
+python run_evaluate.py -m bert ^
     --task mlm ^
     --n-contexts 12 ^
-    --batch-size 4 ^
-    --num-epochs 5 ^
+    --batch-size 64 ^
     --data-dir %UPSTREAM_DATA_DIR% ^
     --checkpoint-group-dir "%OUTPUT_DIR%/bert_1M" ^
     --results-dir "%RESULTS_DIR%/bert_1M" ^

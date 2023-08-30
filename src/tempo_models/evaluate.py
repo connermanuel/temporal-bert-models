@@ -126,7 +126,6 @@ def evaluate(args):
 
     dataset = remove_unused_columns(dataset, MODELS[f"{args.model_architecture}_{args.task}"])
 
-    dataset = dataset.remove_columns(["timestamps", "subreddit"])
     results = {}
     for dir in tqdm.tqdm(model_dirs):
         
