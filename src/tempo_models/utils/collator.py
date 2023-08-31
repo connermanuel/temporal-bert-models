@@ -40,7 +40,7 @@ class CollatorMLM:
             batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt", pad_to_multiple_of=self.pad_to_multiple_of)
         else:
             raise AssertionError("Dataset in the wrong format. Each entry must be a mapping.")
-        if timestamps:
+        if timestamps is not None:
             timestamps = pad_column(batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value)
 
         # If special token mask has been preprocessed, pop it from the dict.
@@ -79,7 +79,7 @@ class CollatorMLM:
         # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
         indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
         inputs[indices_replaced] = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
-        if timestamps:
+        if timestamps is not None:
             timestamps[indices_replaced] = self.timestamp_mask_value
 
         # 10% of the time, we replace masked input tokens with random word
@@ -99,6 +99,6 @@ class CollatorCLS:
         timestamps = [example["timestamps"] for example in examples] if "timestamps" in examples[0].keys() else None
         examples_no_ts = [{k: v for k, v in example.items() if k != "timestamps"} for example in examples]
         batch = self.tokenizer.pad(examples_no_ts, return_tensors="pt")
-        if timestamps:
+        if timestamps is not None:
             batch["timestamps"] = pad_column(batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value)
         return batch
