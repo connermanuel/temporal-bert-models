@@ -1,7 +1,7 @@
 # First: train upstream masked language modeling task on the news dataset
 
-UPSTREAM_DATA_DIR = data/reddit/processed/news_small
-OUTPUT_DIR = output/reddit
+UPSTREAM_DATA_DIR=data/reddit/processed/news_small
+OUTPUT_DIR=output/reddit
 
 python run_train.py	-m bert \
     --task mlm \

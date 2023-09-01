@@ -25,8 +25,8 @@ model_args.add_argument(
     type=int, default=None)
 model_args.add_argument(
     "--alpha", 
-    help="Regularization parameter. Defaults to 1. Only used for orthogonal model.",
-    type=float, default=1)
+    help="Regularization parameter. Defaults to 0. Only used for orthogonal model.",
+    type=float, default=0)
 
 data_args = parser.add_argument_group("Data arguments")
 data_args.add_argument(

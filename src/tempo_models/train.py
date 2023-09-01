@@ -29,17 +29,17 @@ def initialize_mlm_model(model_architecture: str, n_contexts: int, alpha: float)
 def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, num_labels: int, n_contexts: int, alpha: float):
     dispatch_dict_mlm = {
         "bert": BertForMaskedLM,
-        "tempo": BertForTemporalMaskedLM,
+        "tempo_bert": BertForTemporalMaskedLM,
         "orthogonal": BertForOrthogonalMaskedLM
     }
     dispatch_dict_cls = {
         "bert": BertForSequenceClassification,
-        "temporal": BertForTemporalSequenceClassification,
+        "tempo_bert": BertForTemporalSequenceClassification,
         "orthogonal": BertForOrthogonalSequenceClassification
     }
     dispatch_dict_config = {
         "bert": BertConfig,
-        "temporal": TempoBertConfig,
+        "tempo_bert": TempoBertConfig,
         "orthogonal": OrthogonalConfig
     }
 
@@ -126,7 +126,6 @@ def train(args):
     if args.saves_per_epoch > 1:
         save_strategy = 'steps'
         save_steps = max(len(dataset['train']) // (args.batch_size * args.saves_per_epoch), 1)
-
     
     train_args = TrainingArguments(
         output_dir=args.output_dir,

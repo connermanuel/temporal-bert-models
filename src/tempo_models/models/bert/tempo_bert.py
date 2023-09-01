@@ -11,7 +11,6 @@ import torch.nn as nn
 import torch
 import math
 import warnings
-import os
 
 
 from typing import Optional, Tuple, Union
@@ -19,7 +18,7 @@ from typing import Optional, Tuple, Union
 TIMESTAMP_PAD = 2
 
 class TempoBertConfig(BertConfig):
-    def __init__(self, n_contexts, **kwargs):
+    def __init__(self, n_contexts=2, **kwargs):
         super().__init__(**kwargs)
         self.n_contexts = n_contexts
 
@@ -252,12 +251,12 @@ class BertTemporalEncoder(BertEncoder):
 
 
 class BertTemporalModel(BertModel):
-    def __init__(self, config, add_pooling_layer=True, n_contexts=2):
+    def __init__(self, config, add_pooling_layer=True):
         super().__init__(config, add_pooling_layer)
 
+        self.n_contexts = config.n_contexts
         self.encoder = BertTemporalEncoder(config)
-        self.time_embeddings = nn.Embedding(2 + n_contexts, config.hidden_size)
-        self.n_time_periods = n_contexts
+        self.time_embeddings = nn.Embedding(2 + self.n_contexts, config.hidden_size)
 
         self.init_weights()
     
@@ -355,6 +354,7 @@ class BertTemporalModel(BertModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
+
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
 
@@ -371,9 +371,9 @@ class BertTemporalModel(BertModel):
 
 
 class BertForTemporalMaskedLM(BertForMaskedLM):
-    def __init__(self, config, n_contexts=2):
+    def __init__(self, config):
         super().__init__(config)
-        self.bert = BertTemporalModel(config, n_contexts=n_contexts, add_pooling_layer=False)
+        self.bert = BertTemporalModel(config, add_pooling_layer=False)
         self.init_weights()
 
     def forward(
@@ -452,7 +452,7 @@ class BertForTemporalSequenceClassification(BertPreTrainedModel):
         self.num_labels = config.num_labels
         self.config = config
 
-        self.bert = BertTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
+        self.bert = BertTemporalModel(config, add_pooling_layer=True)
         classifier_dropout = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
@@ -524,9 +524,6 @@ class BertForTemporalSequenceClassification(BertPreTrainedModel):
             elif self.config.problem_type == "multi_label_classification":
                 loss_fct = nn.BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
-
-            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
-                loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
             output = (logits,) + outputs[2:]
