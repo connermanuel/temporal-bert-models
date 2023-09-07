@@ -209,8 +209,8 @@ class BertTemporalEncoder(BertEncoder):
     def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
         self.layer = nn.ModuleList([BertTemporalLayer(config) for _ in range(config.num_hidden_layers)])
-        if init_temporal_weights:
-            self.init_temporal_weights()
+        # if init_temporal_weights:
+        #     self.init_temporal_weights()
     
     def forward(
         self,
@@ -294,7 +294,8 @@ class BertOrthogonalTemporalModel(BertModel):
         super().__init__(config, add_pooling_layer) # initializes embeddings and creates init_weights
         self.encoder = BertTemporalEncoder(config, init_temporal_weights=init_temporal_weights)
         self.n_contexts = config.n_contexts
-        self.init_weights()
+        self.post_init()
+        self.init_temporal_weights()
     
     def forward(
         self,
@@ -421,8 +422,10 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
     def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
         self.bert = BertOrthogonalTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
-        self.init_weights()
-        self.alpha=config.alpha
+        self.post_init()
+        self.init_temporal_weights()
+
+        self.alpha = config.alpha
     
     def forward(
         self,
@@ -514,8 +517,7 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.post_init()        
-        self.init_weights()
+        self.post_init()       
         self.init_temporal_weights()
 
     def forward(
