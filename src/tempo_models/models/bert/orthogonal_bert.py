@@ -412,6 +412,9 @@ class BertOrthogonalTemporalModel(BertModel):
         for query_weight, key_weight in layer_weights:
             penalty += F.mse_loss(query_weight, key_weight)
         return penalty
+    
+    def init_temporal_weights(self):
+        self.encoder.init_temporal_weights()
 
 
 class BertForOrthogonalMaskedLM(BertForMaskedLM):
@@ -493,6 +496,9 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+    def init_temporal_weights(self):
+        self.bert.init_temporal_weights()
     
 class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
     def __init__(self, config, init_temporal_weights=True):
@@ -510,6 +516,7 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
 
         self.post_init()        
         self.init_weights()
+        self.init_temporal_weights()
 
     def forward(
         self,
@@ -586,3 +593,6 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+    
+    def init_temporal_weights(self):
+        self.bert.init_temporal_weights()
