@@ -239,7 +239,7 @@ def copy_weights(src: torch.nn.Module, dest: torch.nn.Module, prefix=None):
     sd = dest.state_dict()
     src_sd = src.state_dict()
     for k in src_sd:
-        k = f"{prefix}.k"
+        k = f"{prefix}.{k}" if prefix else k
         if k in sd:
             sd[k] = src_sd[k]
     dest.load_state_dict(sd)

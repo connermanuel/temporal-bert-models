@@ -43,12 +43,10 @@ def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, 
         "orthogonal": OrthogonalConfig
     }
 
-    base_cls_model = AutoModelForSequenceClassification.from_pretrained("bert-base-uncased")
     pretrained_model = dispatch_dict_mlm[model_architecture].from_pretrained(pretrained_loc)
     config = dispatch_dict_config[model_architecture](num_labels=num_labels, n_contexts=n_contexts, alpha=alpha)
     model = dispatch_dict_cls[model_architecture](config)
-
-    model = copy_weights(base_cls_model.classifier, model, prefix="classifier")
+    
     model = copy_weights(pretrained_model, model)
     
     return model
@@ -83,7 +81,6 @@ def train(args):
         special_tokens = [f"timestamp: {t} text: " for t in range(args.n_contexts)]
         bert_tokenizer.add_tokens(special_tokens)
     
-    mask = not args.no_mask
     if args.task == "mlm":
         collator = CollatorMLM(bert_tokenizer)
     elif args.task == "cls":
@@ -119,6 +116,8 @@ def train(args):
         model = initialize_cls_model_from_mlm(args.model_architecture, args.pretrain_dir, args.num_labels, args.n_contexts, args.alpha)
     if args.add_time_tokens == "special":
         model.resize_token_embeddings(len(bert_tokenizer))
+    
+    model.save_pretrained(f"{args.output_dir}/model")
 
     ### Prepare training setup
     save_strategy = 'epoch'
