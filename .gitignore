@@ -1,7 +1,7 @@
 # Remove local copies of data
 data
 output
-output_sample
+scratch
 results
 __pycache__
 run.log

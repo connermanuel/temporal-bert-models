@@ -54,7 +54,6 @@ def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, 
 
 def train(args):
     ### Fix kwargs, create directories, and setup logging
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if args.output_dir is None:
         args.output_dir = f"./output/{args.model_architecture}/lr-{args.lr}"
         if args.model_architecture == "orthogonal":
@@ -132,6 +131,7 @@ def train(args):
         logging_strategy="epoch",
         save_strategy=save_strategy,
         save_steps=save_steps,
+        evaluation_strategy="epoch",
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
         auto_find_batch_size=args.auto_batch,
@@ -151,6 +151,7 @@ def train(args):
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
+    trainer.save_model(f"{args.output_dir}/checkpoint-0")
     trainer.train(resume_from_checkpoint=args.resume)
 
     gc.collect()

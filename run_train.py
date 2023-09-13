@@ -1,4 +1,4 @@
-from tempo_models.utils.parser import parser
+from arg_parser import parser
 from tempo_models.train import train
 
 if __name__ == "__main__":
