@@ -131,7 +131,6 @@ def train(args):
         logging_strategy="epoch",
         save_strategy=save_strategy,
         save_steps=save_steps,
-        evaluation_strategy="epoch",
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
         auto_find_batch_size=args.auto_batch,
