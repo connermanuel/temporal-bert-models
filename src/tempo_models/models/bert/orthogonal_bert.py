@@ -63,7 +63,7 @@ class BertTemporalSelfAttention(BertSelfAttention):
 
         # TODO: Optimize
         original_layer = self.transpose_for_scores(original_layer)
-        timestamp_vals = torch.unique(timestamps[:, [0, -1]])
+        timestamp_vals = torch.unique(timestamps)
         masks = [torch.unsqueeze(timestamps==val, 1)[..., None] for val in timestamp_vals]
         temporal_conditioned_layers = [time_layers[val+TIMESTAMP_PAD](original_layer) * mask for val, mask in zip(timestamp_vals, masks)]
         temporal_conditioned_layer = torch.stack(temporal_conditioned_layers, dim=0).sum(dim=0)
