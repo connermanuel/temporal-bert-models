@@ -12,7 +12,9 @@ import logging
 import gc
 import os
 
-def initialize_mlm_model(model_architecture: str, n_contexts: int, alpha: float):
+VOCAB_SIZE = 30522
+
+def initialize_mlm_model(model_architecture: str, n_contexts: int, alpha: float, add_time_tokens: str):
     """Initializes a model for the first time, ready for training."""   
     bert_model = AutoModelForMaskedLM.from_pretrained('bert-base-uncased')
     if model_architecture == "bert":
@@ -24,9 +26,13 @@ def initialize_mlm_model(model_architecture: str, n_contexts: int, alpha: float)
         config = OrthogonalConfig(n_contexts, alpha)
         model = BertForOrthogonalMaskedLM(config)
     model = copy_weights(bert_model, model)
+
+    if add_time_tokens == "special":
+        model.resize_token_embeddings(VOCAB_SIZE + n_contexts)
+
     return model
 
-def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, num_labels: int, n_contexts: int, alpha: float):
+def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, num_labels: int, n_contexts: int, alpha: float, add_time_tokens: str):
     dispatch_dict_mlm = {
         "bert": BertForMaskedLM,
         "tempo_bert": BertForTemporalMaskedLM,
@@ -46,6 +52,8 @@ def initialize_cls_model_from_mlm(model_architecture: str, pretrained_loc: str, 
     pretrained_model = dispatch_dict_mlm[model_architecture].from_pretrained(pretrained_loc)
     config = dispatch_dict_config[model_architecture](num_labels=num_labels, n_contexts=n_contexts, alpha=alpha)
     model = dispatch_dict_cls[model_architecture](config)
+    if add_time_tokens == "special":
+        model.resize_token_embeddings(VOCAB_SIZE + n_contexts)
     
     model = copy_weights(pretrained_model, model)
     
@@ -110,12 +118,9 @@ def train(args):
 
     ### Prepare model
     if args.task == "mlm":
-        model = initialize_mlm_model(args.model_architecture, args.n_contexts, args.alpha)
+        model = initialize_mlm_model(args.model_architecture, args.n_contexts, args.alpha, args.add_time_tokens)
     elif args.task == "cls":
-        model = initialize_cls_model_from_mlm(args.model_architecture, args.pretrain_dir, args.num_labels, args.n_contexts, args.alpha)
-    if args.add_time_tokens == "special":
-        model.resize_token_embeddings(len(bert_tokenizer))
-    
+        model = initialize_cls_model_from_mlm(args.model_architecture, args.pretrain_dir, args.num_labels, args.n_contexts, args.alpha, args.add_time_tokens)    
     model.save_pretrained(f"{args.output_dir}/model")
 
     ### Prepare training setup
