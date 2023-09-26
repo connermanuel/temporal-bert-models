@@ -1,7 +1,8 @@
+import logging
 from arg_parser import parser
 from tempo_models.train import train
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
     train_args = parser.add_argument_group("Training arguments")
     train_args.add_argument(
         "--output-dir", 
@@ -43,4 +44,11 @@ if __name__ == "__main__":
         "--resume", help="Resume training from checkpoint.", action='store_true')
     
     args = parser.parse_args()
+    
+    logging.basicConfig(
+        filename = f"{args.output_dir}/run.log",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt='%Y-%m-%d %H:%M:%S')
+    
     train(args)

@@ -42,7 +42,7 @@ from ...modeling_outputs import (
 )
 from ...modeling_utils import PreTrainedModel
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS, find_pruneable_heads_and_indices, prune_linear_layer
-from ...utils.utils import (
+from ...utils import (
     DUMMY_INPUTS,
     DUMMY_MASK,
     add_start_docstrings,

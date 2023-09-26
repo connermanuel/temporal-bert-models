@@ -27,10 +27,11 @@ from typing import Optional, Tuple, Union
 TIMESTAMP_PAD = 2
 
 class OrthogonalConfig(BertConfig):
-    def __init__(self, n_contexts=2, alpha=0, **kwargs):
+    def __init__(self, n_contexts=2, alpha=0, init_temporal_weights=True, **kwargs):
         super().__init__(**kwargs)
         self.n_contexts = n_contexts
         self.alpha = alpha
+        self.init_temporal_weights = init_temporal_weights
 
 class BertTemporalSelfAttention(BertSelfAttention):
     def __init__(self, config):

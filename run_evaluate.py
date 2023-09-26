@@ -1,17 +1,21 @@
 from arg_parser import parser
 from tempo_models.evaluate import evaluate
+import logging
 
 if __name__ == "__main__":
     eval_args = parser.add_argument_group("Evaluation arguments")
-    eval_args.add_argument(
+
+    checkpoint_args = eval_args.add_mutually_exclusive_group("Checkpoint loading arguments", required=True)
+    checkpoint_args.add_argument(
         "--checkpoint-dir", 
-        help='If used, path of the huggingface checkpoint. Overrides checkpoint-group-dir.', default=None)
-    eval_args.add_argument(
+        help='If used, path of the huggingface checkpoint. Overrides checkpoint-group-dir.')
+    checkpoint_args.add_argument(
         "--checkpoint-group-dir", 
-        help='If used, path of directory containing huggingface checkpoints.', default=None)
+        help='If used, path of directory containing huggingface checkpoints.')
+    
     eval_args.add_argument(
         "--results-dir", 
-        help='Path to directory to store checkpoints to. Defaults to "results/{architecture}".', default=None)
+        help='Path to directory to store checkpoints to.', required=True)
     eval_args.add_argument(
         "--batch-size", 
         help="Evaluation batch size. Defaults to 16.",
@@ -27,4 +31,12 @@ if __name__ == "__main__":
         default="test")
     
     args = parser.parse_args()
+
+    logging.basicConfig(
+        filename = f"{args.output_dir}/run.log",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt='%Y-%m-%d %H:%M:%S')
+    
+
     evaluate(args)
