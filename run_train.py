@@ -29,8 +29,8 @@ if __name__ == "__main__":
         type=int, default=-1)
     train_args.add_argument(
         "--saves-per-epoch", 
-        help="How many checkpoints are saved in an epoch. Defaults to 5.",
-        type=int, default=5)
+        help="How many checkpoints are saved in an epoch. Defaults to 1.",
+        type=int, default=1)
     train_args.add_argument(
         "--auto-batch", help="Indicates that we should automatically find the best batch size.",
         action='store_true')
@@ -44,11 +44,5 @@ if __name__ == "__main__":
         "--resume", help="Resume training from checkpoint.", action='store_true')
     
     args = parser.parse_args()
-    
-    logging.basicConfig(
-        filename = f"{args.output_dir}/run.log",
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        level=logging.INFO,
-        datefmt='%Y-%m-%d %H:%M:%S')
     
     train(args)

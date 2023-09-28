@@ -4,43 +4,71 @@ parser = argparse.ArgumentParser()
 
 model_args = parser.add_argument_group("Model arguments")
 model_args.add_argument(
-    "-m", "--model_architecture",
+    "-m",
+    "--model_architecture",
     help="The model architecture to train.",
-    choices=["bert", "tempo_bert", "orthogonal"], required=True)
+    choices=["bert", "t5"],
+    required=True,
+)
+model_args.add_argument(
+    "-a",
+    "--attention",
+    help="The variant of attention to use.",
+    choices=["base", "tempo", "orthogonal"],
+    required=True,
+)
 model_args.add_argument(
     "--task",
-    help="The task to train on. Defaults to mlm", 
-    type=str, choices=["mlm", "cls"], default="mlm")
+    help="The task to train on.",
+    type=str,
+    choices=["mlm", "cls"],
+    required=True,
+)
 model_args.add_argument(
-    "--n-contexts", 
-    help='Number of contexts/timestamps. Defaults to 2, the number of timestamps in the SemEval dataset.', 
-    type=int, default=2)
+    "--n-contexts",
+    help="Number of contexts/timestamps.",
+    type=int,
+)
 model_args.add_argument(
     "--pretrain-dir",
     help="Location of pretrained model. Required for classification task.",
-    type=str, default=None)
+    type=str,
+    default=None,
+)
 model_args.add_argument(
     "--num-labels",
     help="Number of labels. Required for classification task.",
-    type=int, default=None)
+    type=int,
+    default=None,
+)
 model_args.add_argument(
-    "--alpha", 
+    "--alpha",
     help="Regularization parameter. Defaults to 0. Only used for orthogonal model.",
-    type=float, default=0)
+    type=float,
+    default=0,
+)
 
 data_args = parser.add_argument_group("Data arguments")
+data_args.add_argument("--data-dir", help="Path of the huggingface dataset.")
 data_args.add_argument(
-    "--data-dir", help="Path of the huggingface dataset.")
+    "--time-token",
+    help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
+    choices=["none", "string", "special"],
+    default="none",
+)
 data_args.add_argument(
-    "--add-time-tokens", help="Modifies the dataset to insert generic special time tokens. Use 'string' for tokenized strings, and 'special' for inserted special tokens.",
-    choices=[None, "none", "string", "special"], default=None)
+    "--sample",
+    help="Indicates how many documents to use. If unset, uses the entire dataset.",
+    type=int,
+    default=0,
+)
 data_args.add_argument(
-    "--sample", help="Indicates how many documents to use. If unset, uses the entire dataset.",
-    type=int, default=0)
+    "--skip-process",
+    help="Skips the processing of the dataset (shuffling and prepending time tokens.)",
+    action="store_true",
+)
 data_args.add_argument(
-    "--skip-process", help="Skips the processing of the dataset (shuffling and prepending time tokens.)",
-    action='store_true')
-data_args.add_argument(
-    "--save-dataset", help="After processing, stores the dataset to this location.", default=None)
-data_args.add_argument(
-    "--no_mask", help="Do not use a masked language modeling collator. Used when the dataset already has tokens masked out.", action="store_true")
+    "--save-dataset",
+    help="After processing, stores the dataset to this location.",
+    default=None,
+)

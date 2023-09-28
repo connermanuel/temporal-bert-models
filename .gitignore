@@ -7,8 +7,6 @@ __pycache__
 run.log
 *.egg-info
 
-%RESULTS_DIR%
-
 # Remove stuff that I used for local experimentation lol
 playground.ipynb
 .ipynb_checkpoints
@@ -19,3 +17,4 @@ scratch.py
 .vscode
 *.austin
 sample_script.bat
+.pytest_cache

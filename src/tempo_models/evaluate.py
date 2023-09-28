@@ -2,6 +2,7 @@
 Generalized evaluation script for various datasets and model architectures.
 Given a directory containing model checkpoints, evaluate all of those checkpoints.
 """
+from torch.nn import Module
 from tempo_models.models.bert.orthogonal_bert import (
     BertForOrthogonalMaskedLM,
     BertForOrthogonalSequenceClassification,
@@ -22,7 +23,6 @@ from tempo_models.utils.metrics import (
 
 from transformers import (
     BertForMaskedLM,
-    AutoTokenizer,
     BertForSequenceClassification,
     TrainingArguments,
 )
@@ -33,22 +33,12 @@ from tempo_models.utils import (
     add_special_time_tokens,
     NonShuffledTrainer,
     remove_unused_columns,
-    fetch_tokenizer
+    fetch_tokenizer,
 )
 import os
 import logging
 import json
 import tqdm
-
-
-MODELS = {
-    "tempo_bert_mlm": BertForTemporalMaskedLM,
-    "orthogonal_mlm": BertForOrthogonalMaskedLM,
-    "bert_mlm": BertForMaskedLM,
-    "tempo_bert_cls": BertForTemporalSequenceClassification,
-    "orthogonal_cls": BertForOrthogonalSequenceClassification,
-    "bert_cls": BertForSequenceClassification,
-}
 
 
 def evaluate(args):
@@ -79,9 +69,8 @@ def evaluate(args):
     )
 
     ### Prepare collator and tokenizer
-    tokenizer = fetch_tokenizer(args.model, args.time_token, args.n_contexts)
+    tokenizer = fetch_tokenizer(args.model_architecture, args.time_token, args.n_contexts)
 
-    mask = not args.no_mask
     if args.task == "mlm":
         collator = CollatorMLM(tokenizer)
     elif args.task == "cls":
@@ -104,7 +93,7 @@ def evaluate(args):
     logging.info(f"Processing the dataset")
     if not args.skip_process:
         dataset = add_special_time_tokens(
-            dataset, tokenizer.vocab_size, args.add_time_tokens
+            dataset, tokenizer.vocab_size, args.time_token
         )
 
     if args.save_dataset:
@@ -120,6 +109,8 @@ def evaluate(args):
             for path in os.listdir(args.checkpoint_group_dir)
             if "checkpoint" in path
         ]
+
+    ModelClass = get_model_class(args.model_architecture, args.attention, args.task)
 
     logging.info(f"Evaluating models...")
 
@@ -146,13 +137,11 @@ def evaluate(args):
             }
         )
 
-    dataset = remove_unused_columns(
-        dataset, MODELS[f"{args.model_architecture}_{args.task}"]
-    )
+    dataset = remove_unused_columns(dataset, ModelClass)
 
     results = {}
     for dir in tqdm.tqdm(model_dirs):
-        model = MODELS[f"{args.model_architecture}_{args.task}"].from_pretrained(dir)
+        model = ModelClass.from_pretrained(dir)
 
         if args.task == "cls":
             trainer = NonShuffledTrainer(
@@ -164,8 +153,31 @@ def evaluate(args):
             )
             model_results = trainer.evaluate()
         else:
-            model_results = evaluate_mlm(model, dataset, collator)
+            model_results = evaluate_mlm(model, dataset, collator) # TODO: Figure this out!! It would be much better if we can just do MLM straight through the trainer.
         results[dir] = model_results
 
         with open(f"{args.results_dir}/results.json", "w") as f:
             json.dump(results, f)
+
+def get_model_class(model_architecture: str, attention: str, task: str) -> type(Module):
+    MODELS = {
+        "bert": {
+            "base": {
+                "mlm": BertForMaskedLM,
+                "cls": BertForSequenceClassification
+            },
+            "tempo": {
+                "mlm": BertForTemporalMaskedLM,
+                "cls": BertForTemporalSequenceClassification
+            },
+            "orthogonal": {
+                "mlm": BertForOrthogonalMaskedLM,
+                "cls": BertForOrthogonalSequenceClassification
+            },
+        },
+    }
+
+    try:
+        return MODELS[model_architecture][attention][task]
+    except KeyError:
+        raise ValueError(f"Sorry, we don't support evaluation for {model_architecture} {attention} for {task}")

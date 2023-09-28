@@ -5,7 +5,7 @@ import logging
 if __name__ == "__main__":
     eval_args = parser.add_argument_group("Evaluation arguments")
 
-    checkpoint_args = eval_args.add_mutually_exclusive_group("Checkpoint loading arguments", required=True)
+    checkpoint_args = eval_args.add_mutually_exclusive_group(required=True)
     checkpoint_args.add_argument(
         "--checkpoint-dir", 
         help='If used, path of the huggingface checkpoint. Overrides checkpoint-group-dir.')
@@ -31,12 +31,5 @@ if __name__ == "__main__":
         default="test")
     
     args = parser.parse_args()
-
-    logging.basicConfig(
-        filename = f"{args.output_dir}/run.log",
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        level=logging.INFO,
-        datefmt='%Y-%m-%d %H:%M:%S')
-    
 
     evaluate(args)

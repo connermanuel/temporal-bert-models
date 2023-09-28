@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.parametrizations import orthogonal
-from context import MultiHeadLinear
+from tempo_models.models.multi_head_linear import MultiHeadLinear
 
 H_SIZE = 20
 B_SIZE = 4
@@ -65,8 +65,8 @@ def test_batched_functionality(orth_linear, random_input):
     
     outs = []
     for i, layer in enumerate(linear_layers):
-        layer.weight = orth_linear.weight[i]
+        layer.weight = nn.Parameter(orth_linear.weight[i])
         outs.append(layer(random_input[i]))
     out_separate = torch.stack(outs)
 
-    assert torch.isclose(out_batched, out_separate)
+    assert torch.allclose(out_batched, out_separate)

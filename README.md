@@ -1,1 +1,2 @@
-# Temporal Bert Models
+# Temporal Models
+Not just BERT models!

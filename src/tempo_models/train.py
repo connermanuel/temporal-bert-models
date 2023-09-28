@@ -30,16 +30,23 @@ from tempo_models.utils import (
 )
 from tempo_models.utils.collator import CollatorCLS, CollatorMLM
 
+
 def train(args):
     ### Fix kwargs, create directories, and setup logging
     if not os.path.exists(args.data_dir):
         raise ValueError("Data directory does not exist")
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
+    
+    logging.basicConfig(
+        filename = f"{args.output_dir}/run.log",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt='%Y-%m-%d %H:%M:%S')
 
     ### Prepare collator and tokenizer
     logging.info(f"Initializing model")
-    tokenizer = fetch_tokenizer(args.model, args.time_token, args.n_contexts)
+    tokenizer = fetch_tokenizer(args.model_architecture, args.time_token, args.n_contexts)
 
     if args.task == "mlm":
         collator = CollatorMLM(tokenizer)
@@ -58,7 +65,9 @@ def train(args):
     if not args.skip_process:
         for key in dataset.keys():
             dataset[key] = shuffle_batched(dataset[key], args.batch_size)
-        dataset = add_special_time_tokens(dataset, tokenizer.vocab_size, args.add_time_tokens)
+        dataset = add_special_time_tokens(
+            dataset, tokenizer.vocab_size, args.time_token
+        )
 
     if args.save_dataset:
         logging.info(f"Saving the dataset to {args.save_dataset}")
@@ -67,7 +76,12 @@ def train(args):
     ### Prepare model
     if args.task == "mlm":
         model = initialize_mlm_model(
-            args.model_architecture, args.attention, args.n_contexts, args.alpha, args.add_time_tokens, tokenizer.vocab_size
+            args.model_architecture,
+            args.attention,
+            args.n_contexts,
+            args.alpha,
+            args.time_token,
+            tokenizer.vocab_size,
         )
     elif args.task == "cls":
         model = initialize_cls_model_from_mlm(
@@ -77,10 +91,9 @@ def train(args):
             args.num_labels,
             args.n_contexts,
             args.alpha,
-            args.add_time_tokens,
-            tokenizer.vocab_size
+            args.time_token,
+            tokenizer.vocab_size,
         )
-    model.save_pretrained(f"{args.output_dir}/model")
 
     ### Prepare training setup
     save_strategy = "epoch"
@@ -90,8 +103,6 @@ def train(args):
         save_steps = max(
             len(dataset["train"]) // (args.batch_size * args.saves_per_epoch), 1
         )
-
-    print(args.no_cuda)
 
     train_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -126,7 +137,9 @@ def train(args):
     empty_cache()
 
 
-def copy_weights(src: torch.nn.Module, dest: torch.nn.Module, prefix=None):
+def copy_weights(
+    src: torch.nn.Module, dest: torch.nn.Module, prefix=None
+) -> torch.nn.Module:
     """Copy the weights from the source model to the destination model."""
     sd = dest.state_dict()
     src_sd = src.state_dict()
@@ -142,28 +155,27 @@ def initialize_mlm_model(
     model_architecture: str,
     attention: str,
     n_contexts: int,
-    alpha: float,
-    add_time_tokens: str,
-    vocab_size: int,
+    alpha: float = 0,
+    time_token: str = None,
+    vocab_size: int = 30522,
 ):
     """Initializes a model for the first time, ready for training."""
     if model_architecture == "bert":
         base_bert_model = AutoModelForMaskedLM.from_pretrained("bert-base-uncased")
-        if attention == "base":
-            model = base_bert_model
-        elif model_architecture == "tempo_bert":
+        model = base_bert_model
+        if attention == "tempo_bert":
             model = BertForTemporalMaskedLM(TempoBertConfig(n_contexts))
             model = copy_weights(base_bert_model, model)
-        elif model_architecture == "orthogonal":
+        elif attention == "orthogonal":
             model = BertForOrthogonalMaskedLM(OrthogonalConfig(n_contexts, alpha))
             model = copy_weights(base_bert_model, model)
+        if time_token == "special":
+            model.resize_token_embeddings(vocab_size + n_contexts)
+        return model
     elif model_architecture == "t5":
         raise ValueError(
             "Sorry, we don't support T5 models for masked language modeling yet."
         )
-    if add_time_tokens == "special":
-        model.resize_token_embeddings(vocab_size + n_contexts)
-    return model
 
 
 def initialize_cls_model_from_mlm(
@@ -173,7 +185,7 @@ def initialize_cls_model_from_mlm(
     num_labels: int,
     n_contexts: int,
     alpha: float,
-    add_time_tokens: str,
+    time_token: str,
     vocab_size: int,
 ):
     dispatch_dict_mlm = {
@@ -200,7 +212,7 @@ def initialize_cls_model_from_mlm(
     )
     model = dispatch_dict_cls[model_architecture](config)
     model = copy_weights(pretrained_model, model)
-    if add_time_tokens == "special":
+    if time_token == "special":
         model.resize_token_embeddings(vocab_size + n_contexts)
 
     return model

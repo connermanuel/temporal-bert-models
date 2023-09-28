@@ -29,6 +29,7 @@ class MultiHeadLinear(nn.Module):
             nn.init.uniform_(self.bias, -bound, bound)
     
     def forward(self, input: Tensor) -> Tensor:
+        # out = matmul(input, self.weight.transpose(-1, -2))
         out = matmul(input, self.weight)
         if self.bias is not None:
             out = out + self.bias
