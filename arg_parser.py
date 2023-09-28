@@ -14,7 +14,7 @@ model_args.add_argument(
     "-a",
     "--attention",
     help="The variant of attention to use.",
-    choices=["base", "tempo", "orthogonal"],
+    choices=["base", "tempo_bert", "orthogonal"],
     required=True,
 )
 model_args.add_argument(

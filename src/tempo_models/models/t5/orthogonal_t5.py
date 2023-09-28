@@ -212,7 +212,7 @@ class T5OrthogonalAttention(nn.Module):
         Multiply rows of the input matrix with the corresponding time layers.
 
         Input:
-            original_layer: tensor of shape (batch_size, seq_len, attention_full_size)
+            original_layer: tensor of shape (batch_size, n_heads, seq_length, dim_per_head)
             time_layers: Nested module list of shape (num_timestamps, num_attention_heads), each module is a linear layer
             timestamps: tensor of shape (batch_size, seq_len)
         Output:
@@ -267,7 +267,7 @@ class T5OrthogonalAttention(nn.Module):
             """reshape"""
             return states.transpose(1, 2).contiguous().view(batch_size, -1, self.inner_dim)
 
-        def project(hidden_states, proj_layer, key_value_states, past_key_value, time_layers, timestamps):
+        def project(hidden_states, proj_layer, key_value_states, past_key_value):
             """projects hidden states correctly to key/query states"""
             if key_value_states is None:
                 # self-attn
@@ -277,9 +277,6 @@ class T5OrthogonalAttention(nn.Module):
                 # cross-attn
                 # (batch_size, n_heads, seq_length, dim_per_head)
                 hidden_states = shape(proj_layer(key_value_states))
-
-            if time_layers is not None:
-                hidden_states = self.construct_time_matrix(hidden_states, time_layers, timestamps)
 
             if past_key_value is not None:
                 if key_value_states is None:
@@ -299,7 +296,6 @@ class T5OrthogonalAttention(nn.Module):
 
         # get query states
         query_states = shape(self.q(hidden_states))  # (batch_size, n_heads, seq_length, dim_per_head)
-        query_states = self.construct_time_matrix(query_states, self.q_time, timestamps)
 
         # get key/value states
         key_states = project(
@@ -308,6 +304,9 @@ class T5OrthogonalAttention(nn.Module):
         value_states = project(
             hidden_states, self.v, key_value_states, past_key_value[1] if past_key_value is not None else None, None, timestamps
         )
+        
+        query_states = self.construct_time_matrix(query_states, self.q_time, timestamps)
+        key_states = self.construct_time_matrix(key_states, self.q_time, timestamps)
 
         # compute scores
         scores = torch.matmul(
@@ -383,6 +382,7 @@ class T5LayerOrthogonalSelfAttention(nn.Module):
         normed_hidden_states = self.layer_norm(hidden_states)
         attention_output = self.SelfAttention(
             normed_hidden_states,
+            timestamps=timestamps,
             mask=attention_mask,
             position_bias=position_bias,
             layer_head_mask=layer_head_mask,

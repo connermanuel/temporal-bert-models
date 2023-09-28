@@ -1,8 +1,17 @@
 import pytest
+import torch
 from datasets import load_from_disk
 from transformers import AutoTokenizer, BertForMaskedLM
 from torch.utils.data import DataLoader
 from tempo_models.utils.collator import CollatorMLM, CollatorCLS
+from tempo_models.train import initialize_mlm_model
+
+
+@pytest.fixture(scope="session")
+def device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
 ##### TOKENIZERS #####
 @pytest.fixture(scope="session")
@@ -36,7 +45,11 @@ def dataloader_cls(dataset_cls, tokenizer_bert):
 
 ##### MODELS #####
 
-@pytest.fixture(scope="session")
-def model_bert_base():
-    return BertForMaskedLM.from_pretrained("bert-base-uncased")
+@pytest.fixture()
+def model_bert_base(device):
+    return BertForMaskedLM.from_pretrained("bert-base-uncased").to(device)
+
+@pytest.fixture()
+def model_bert_orth(device):
+    return initialize_mlm_model("bert", "orthogonal", 12).to(device)
 

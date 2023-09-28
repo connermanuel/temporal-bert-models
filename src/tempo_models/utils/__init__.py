@@ -127,11 +127,15 @@ def make_batch_iterator(dataset, batch_size=32, shuffle=False):
         yield [dataset[int(i)] for i in idx]
 
 def evaluate_mlm(model, dataset, data_collator, 
-             device=torch.device('cuda'), batch_size=16, pad_id=-100):
+             no_cuda=False, batch_size=16, pad_id=-100):
     """
     Compute token-level perplexity, accuracy, and MRR metrics.
     Note that the perplexity here is over subwords, not words.
     """
+    if not no_cuda:
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
     model.eval().to(device)
 
     mean_cross_entropy = 0
@@ -162,8 +166,8 @@ def evaluate_mlm(model, dataset, data_collator,
             correct_predictions += batch_correct_predictions
             
             idx = torch.nonzero(labels != pad_id)
-            labels = labels[idx[:, 0], idx[:, 1]].cuda() ## is a list of length n
-            logits_masked = logits[idx[:, 0], idx[:, 1]].cuda() ## should now be of shape n x n_tokens
+            labels = labels[idx[:, 0], idx[:, 1]].to(device) ## is a list of length n
+            logits_masked = logits[idx[:, 0], idx[:, 1]].to(device) ## should now be of shape n x n_tokens
             logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
 
             ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1

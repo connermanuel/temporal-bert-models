@@ -119,7 +119,7 @@ def evaluate(args):
         per_device_eval_batch_size=args.batch_size,
         remove_unused_columns=True,
         fp16=args.use_fp16,
-        no_cuda=args.no_cuda,
+        use_cpu=args.no_cuda,
         eval_accumulation_steps=4,
     )
 
@@ -140,8 +140,8 @@ def evaluate(args):
     dataset = remove_unused_columns(dataset, ModelClass)
 
     results = {}
-    for dir in tqdm.tqdm(model_dirs):
-        model = ModelClass.from_pretrained(dir)
+    for model_dir in tqdm.tqdm(model_dirs):
+        model = ModelClass.from_pretrained(model_dir)
 
         if args.task == "cls":
             trainer = NonShuffledTrainer(
@@ -153,8 +153,8 @@ def evaluate(args):
             )
             model_results = trainer.evaluate()
         else:
-            model_results = evaluate_mlm(model, dataset, collator) # TODO: Figure this out!! It would be much better if we can just do MLM straight through the trainer.
-        results[dir] = model_results
+            model_results = evaluate_mlm(model, dataset, collator, no_cuda=args.no_cuda) # TODO: Figure this out!! It would be much better if we can just do MLM straight through the trainer.
+        results[model_dir] = model_results
 
         with open(f"{args.results_dir}/results.json", "w") as f:
             json.dump(results, f)
@@ -166,7 +166,7 @@ def get_model_class(model_architecture: str, attention: str, task: str) -> type(
                 "mlm": BertForMaskedLM,
                 "cls": BertForSequenceClassification
             },
-            "tempo": {
+            "tempo_bert": {
                 "mlm": BertForTemporalMaskedLM,
                 "cls": BertForTemporalSequenceClassification
             },

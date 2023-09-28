@@ -8,9 +8,22 @@ HF modeling utils: https://github.com/huggingface/transformers/blob/main/src/tra
 HF modeling bert: https://github.com/huggingface/transformers/blob/main/src/transformers/models/bert/modeling_bert.py
 """
 
-from transformers.models.bert.modeling_bert import BertAttention, BertSelfAttention, BertLayer, BertEncoder, BertModel, BertForMaskedLM, BertPreTrainedModel
+from transformers.models.bert.modeling_bert import (
+    BertAttention,
+    BertSelfAttention,
+    BertLayer,
+    BertEncoder,
+    BertModel,
+    BertForMaskedLM,
+    BertPreTrainedModel,
+)
 from transformers.modeling_utils import apply_chunking_to_forward
-from transformers.modeling_outputs import BaseModelOutputWithCrossAttentions, BaseModelOutputWithPoolingAndCrossAttentions, MaskedLMOutput, SequenceClassifierOutput
+from transformers.modeling_outputs import (
+    BaseModelOutputWithCrossAttentions,
+    BaseModelOutputWithPoolingAndCrossAttentions,
+    MaskedLMOutput,
+    SequenceClassifierOutput,
+)
 from transformers import BertConfig
 
 import torch
@@ -23,8 +36,11 @@ from tempo_models.models.multi_head_linear import MultiHeadLinear
 import math
 import warnings
 from typing import Optional, Tuple, Union
+from copy import deepcopy
+import os
 
 TIMESTAMP_PAD = 2
+
 
 class OrthogonalConfig(BertConfig):
     def __init__(self, n_contexts=2, alpha=0, init_temporal_weights=True, **kwargs):
@@ -33,24 +49,50 @@ class OrthogonalConfig(BertConfig):
         self.alpha = alpha
         self.init_temporal_weights = init_temporal_weights
 
-class BertTemporalSelfAttention(BertSelfAttention):
+class BertOrthogonalSelfAttention(BertSelfAttention):
     def __init__(self, config):
         self.n_contexts = config.n_contexts
         super().__init__(config)
-        self.query_time_layers = nn.ModuleList([
-            orthogonal(MultiHeadLinear(self.num_attention_heads, self.attention_head_size, self.attention_head_size, bias=False))
-        for _ in range (self.n_contexts + 2)])
-        self.key_time_layers = nn.ModuleList([
-            orthogonal(MultiHeadLinear(self.num_attention_heads, self.attention_head_size, self.attention_head_size, bias=False))
-        for _ in range (self.n_contexts + 2)])
-    
+        self.query_time_layers = nn.ModuleList(
+            [
+                orthogonal(
+                    MultiHeadLinear(
+                        self.num_attention_heads,
+                        self.attention_head_size,
+                        self.attention_head_size,
+                        bias=False,
+                    )
+                )
+                for _ in range(self.n_contexts + 2)
+            ]
+        )
+        self.key_time_layers = nn.ModuleList(
+            [
+                orthogonal(
+                    MultiHeadLinear(
+                        self.num_attention_heads,
+                        self.attention_head_size,
+                        self.attention_head_size,
+                        bias=False,
+                    )
+                )
+                for _ in range(self.n_contexts + 2)
+            ]
+        )
+
     def init_temporal_weights(self):
         """Initializes all of the orthogonal layers to have the same weights, since O @ O^T = I."""
+        state_dict = self.query_time_layers[0].state_dict()
         for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
-            query_layer.load_state_dict(self.query_time_layers[0].state_dict())
-            key_layer.load_state_dict(query_layer.state_dict())
+            query_layer.load_state_dict(state_dict)
+            key_layer.load_state_dict(state_dict)
 
-    def construct_time_matrix(self, original_layer: torch.Tensor, time_layers: nn.ModuleList, timestamps: torch.tensor):
+    def construct_time_matrix(
+        self,
+        original_layer: torch.Tensor,
+        time_layers: nn.ModuleList,
+        timestamps: torch.tensor,
+    ):
         """
         Multiply rows of the input matrix with the corresponding time layers.
 
@@ -59,18 +101,25 @@ class BertTemporalSelfAttention(BertSelfAttention):
             time_layers: Nested module list of shape (num_timestamps, num_attention_heads), each module is a linear layer
             timestamps: tensor of shape (batch_size, seq_len)
         Output:
-            temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)        
+            temporal_conditioned_layer: tensor of shape (batch_size, num_attention_heads, seq_len, attention_head_size)
         """
 
         # TODO: Optimize
         original_layer = self.transpose_for_scores(original_layer)
         timestamp_vals = torch.unique(timestamps)
-        masks = [torch.unsqueeze(timestamps==val, 1)[..., None] for val in timestamp_vals]
-        temporal_conditioned_layers = [time_layers[val+TIMESTAMP_PAD](original_layer) * mask for val, mask in zip(timestamp_vals, masks)]
-        temporal_conditioned_layer = torch.stack(temporal_conditioned_layers, dim=0).sum(dim=0)
-        
+        masks = [
+            torch.unsqueeze(timestamps == val, 1)[..., None] for val in timestamp_vals
+        ]
+        temporal_conditioned_layers = [
+            time_layers[val + TIMESTAMP_PAD](original_layer) * mask
+            for val, mask in zip(timestamp_vals, masks)
+        ]
+        temporal_conditioned_layer = torch.stack(
+            temporal_conditioned_layers, dim=0
+        ).sum(dim=0)
+
         return temporal_conditioned_layer
-    
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -82,7 +131,6 @@ class BertTemporalSelfAttention(BertSelfAttention):
         past_key_value: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.Tensor]:
-        
         # TODO: change device to be passed in as an arg
         # TODO: implement compatibility for temporal seq2seq decoding
 
@@ -95,12 +143,18 @@ class BertTemporalSelfAttention(BertSelfAttention):
         else:
             mixed_key_layer = self.key(hidden_states)
             mixed_value_layer = self.value(hidden_states)
- 
-        timed_query_layer = self.construct_time_matrix(mixed_query_layer, self.query_time_layers, timestamps)
-        timed_key_layer = self.construct_time_matrix(mixed_key_layer, self.key_time_layers, timestamps)
+
+        timed_query_layer = self.construct_time_matrix(
+            mixed_query_layer, self.query_time_layers, timestamps
+        )
+        timed_key_layer = self.construct_time_matrix(
+            mixed_key_layer, self.key_time_layers, timestamps
+        )
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
-        attention_scores = torch.matmul(timed_query_layer, timed_key_layer.transpose(-1, -2))
+        attention_scores = torch.matmul(
+            timed_query_layer, timed_key_layer.transpose(-1, -2)
+        )
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
@@ -115,9 +169,11 @@ class BertTemporalSelfAttention(BertSelfAttention):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        outputs = (
+            (context_layer, attention_probs) if output_attentions else (context_layer,)
+        )
         return outputs
-    
+
     def get_temporal_layer_weights(self):
         weights = []
         for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
@@ -125,11 +181,12 @@ class BertTemporalSelfAttention(BertSelfAttention):
             weights.append(out)
         return weights
 
-class BertTemporalAttention(BertAttention):
+
+class BertOrthogonalAttention(BertAttention):
     def __init__(self, config):
         super().__init__(config)
-        self.self = BertTemporalSelfAttention(config)
-    
+        self.self = BertOrthogonalSelfAttention(config)
+
     def forward(
         self,
         hidden_states,
@@ -150,17 +207,19 @@ class BertTemporalAttention(BertAttention):
             output_attentions,
         )
         attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        outputs = (attention_output,) + self_outputs[
+            1:
+        ]  # add attentions if we output them
         return outputs
-    
+
     def get_temporal_layer_weights(self):
         return self.self.get_temporal_layer_weights()
-    
 
-class BertTemporalLayer(BertLayer):
+
+class BertOrthogonalLayer(BertLayer):
     def __init__(self, config):
         super().__init__(config)
-        self.attention = BertTemporalAttention(config)
+        self.attention = BertOrthogonalAttention(config)
 
     def forward(
         self,
@@ -180,7 +239,9 @@ class BertTemporalLayer(BertLayer):
             output_attentions=output_attentions,
         )
         attention_output = self_attention_outputs[0]
-        outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+        outputs = self_attention_outputs[
+            1:
+        ]  # add self attentions if we output attention weights
 
         if self.is_decoder and encoder_hidden_states is not None:
             assert hasattr(
@@ -195,24 +256,32 @@ class BertTemporalLayer(BertLayer):
                 output_attentions,
             )
             attention_output = cross_attention_outputs[0]
-            outputs = outputs + cross_attention_outputs[1:]  # add cross attentions if we output attention weights
+            outputs = (
+                outputs + cross_attention_outputs[1:]
+            )  # add cross attentions if we output attention weights
 
         layer_output = apply_chunking_to_forward(
-            self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, attention_output)
+            self.feed_forward_chunk,
+            self.chunk_size_feed_forward,
+            self.seq_len_dim,
+            attention_output,
+        )
         outputs = (layer_output,) + outputs
         return outputs
-    
+
     def get_temporal_layer_weights(self):
         return self.attention.get_temporal_layer_weights()
 
 
-class BertTemporalEncoder(BertEncoder):
+class BertOrthogonalEncoder(BertEncoder):
     def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
-        self.layer = nn.ModuleList([BertTemporalLayer(config) for _ in range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList(
+            [BertOrthogonalLayer(config) for _ in range(config.num_hidden_layers)]
+        )
         # if init_temporal_weights:
         #     self.init_temporal_weights()
-    
+
     def forward(
         self,
         hidden_states,
@@ -227,7 +296,9 @@ class BertTemporalEncoder(BertEncoder):
     ):
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
-        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
+        all_cross_attentions = (
+            () if output_attentions and self.config.add_cross_attention else None
+        )
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -274,7 +345,12 @@ class BertTemporalEncoder(BertEncoder):
         if not return_dict:
             return tuple(
                 v
-                for v in [hidden_states, all_hidden_states, all_self_attentions, all_cross_attentions]
+                for v in [
+                    hidden_states,
+                    all_hidden_states,
+                    all_self_attentions,
+                    all_cross_attentions,
+                ]
                 if v is not None
             )
         return BaseModelOutputWithCrossAttentions(
@@ -283,21 +359,26 @@ class BertTemporalEncoder(BertEncoder):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
-    
+
     def get_temporal_layer_weights(self):
         return sum([layer.get_temporal_layer_weights() for layer in self.layer], [])
-    
+
     def init_temporal_weights(self):
         [layer.attention.self.init_temporal_weights() for layer in self.layer]
 
-class BertOrthogonalTemporalModel(BertModel):
+
+class BertOrthogonalModel(BertModel):
     def __init__(self, config, add_pooling_layer=True, init_temporal_weights=True):
-        super().__init__(config, add_pooling_layer) # initializes embeddings and creates init_weights
-        self.encoder = BertTemporalEncoder(config, init_temporal_weights=init_temporal_weights)
+        super().__init__(
+            config, add_pooling_layer
+        )  # initializes embeddings and creates init_weights
+        self.encoder = BertOrthogonalEncoder(
+            config, init_temporal_weights=init_temporal_weights
+        )
         self.n_contexts = config.n_contexts
         self.post_init()
         self.init_temporal_weights()
-    
+
     def forward(
         self,
         input_ids=None,
@@ -327,25 +408,39 @@ class BertOrthogonalTemporalModel(BertModel):
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
         """
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        output_hidden_states = (
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
+        )
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+            raise ValueError(
+                "You cannot specify both input_ids and inputs_embeds at the same time"
+            )
         elif input_ids is not None:
             input_shape = input_ids.size()
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
-        
+
         if timestamps is None:
-            raise ValueError(f"You need to pass in a list of timestamps, ranging from 0 to {self.n_contexts - 1}")
+            raise ValueError(
+                f"You need to pass in a list of timestamps, ranging from 0 to {self.n_contexts - 1}"
+            )
         elif timestamps.shape != input_ids.shape:
-            raise ValueError(f'Timestamps not properly generated: must be same shape as input ids')
+            raise ValueError(
+                f"Timestamps not properly generated: must be same shape as input ids"
+            )
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
@@ -356,16 +451,24 @@ class BertOrthogonalTemporalModel(BertModel):
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
-        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_mask, input_shape, device)
+        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(
+            attention_mask, input_shape, device
+        )
 
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
         if self.config.is_decoder and encoder_hidden_states is not None:
-            encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
+            (
+                encoder_batch_size,
+                encoder_sequence_length,
+                _,
+            ) = encoder_hidden_states.size()
             encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
             if encoder_attention_mask is None:
                 encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
-            encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask)
+            encoder_extended_attention_mask = self.invert_attention_mask(
+                encoder_attention_mask
+            )
         else:
             encoder_extended_attention_mask = None
 
@@ -377,7 +480,11 @@ class BertOrthogonalTemporalModel(BertModel):
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
         embedding_output = self.embeddings(
-            input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds)
+            input_ids=input_ids,
+            position_ids=position_ids,
+            token_type_ids=token_type_ids,
+            inputs_embeds=inputs_embeds,
+        )
 
         encoder_outputs = self.encoder(
             embedding_output,
@@ -391,11 +498,12 @@ class BertOrthogonalTemporalModel(BertModel):
             return_dict=return_dict,
         )
         sequence_output = encoder_outputs[0]
-        pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
+        pooled_output = (
+            self.pooler(sequence_output) if self.pooler is not None else None
+        )
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
-        
 
         return BaseModelOutputWithPoolingAndCrossAttentions(
             last_hidden_state=sequence_output,
@@ -404,17 +512,17 @@ class BertOrthogonalTemporalModel(BertModel):
             attentions=encoder_outputs.attentions,
             cross_attentions=encoder_outputs.cross_attentions,
         )
-    
+
     def get_temporal_layer_weights(self):
         return self.encoder.get_temporal_layer_weights()
-    
+
     def get_weight_penalty(self):
         penalty = 0
         layer_weights = self.bert.get_temporal_layer_weights()
         for query_weight, key_weight in layer_weights:
             penalty += F.mse_loss(query_weight, key_weight)
         return penalty
-    
+
     def init_temporal_weights(self):
         self.encoder.init_temporal_weights()
 
@@ -422,12 +530,14 @@ class BertOrthogonalTemporalModel(BertModel):
 class BertForOrthogonalMaskedLM(BertForMaskedLM):
     def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
-        self.bert = BertOrthogonalTemporalModel(config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights)
+        self.bert = BertOrthogonalModel(
+            config, add_pooling_layer=False, init_temporal_weights=init_temporal_weights
+        )
         self.post_init()
         self.init_temporal_weights()
 
         self.alpha = config.alpha
-    
+
     def forward(
         self,
         input_ids=None,
@@ -443,7 +553,7 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
-        **kwargs
+        **kwargs,
     ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
@@ -459,10 +569,14 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
                 FutureWarning,
             )
             labels = kwargs.pop("masked_lm_labels")
-        assert "lm_labels" not in kwargs, "Use `BertWithLMHead` for autoregressive language modeling task."
+        assert (
+            "lm_labels" not in kwargs
+        ), "Use `BertWithLMHead` for autoregressive language modeling task."
         assert kwargs == {}, f"Unexpected keyword arguments: {list(kwargs.keys())}."
 
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
         outputs = self.bert(
             input_ids,
@@ -485,15 +599,21 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
         masked_lm_loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()  # -100 index = padding token
-            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
-            # TODO: Optimize 
-            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
+            masked_lm_loss = loss_fct(
+                prediction_scores.view(-1, self.config.vocab_size), labels.view(-1)
+            )
+            # TODO: Optimize
+            if (
+                self.alpha != 0 and self.training
+            ):  # Penalize query and key weights for deviating far from each other
                 masked_lm_loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
-            return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
-        
+            return (
+                ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+            )
+
         return MaskedLMOutput(
             loss=masked_lm_loss,
             logits=prediction_scores,
@@ -503,22 +623,27 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
 
     def init_temporal_weights(self):
         self.bert.init_temporal_weights()
-    
+
+
 class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
     def __init__(self, config, init_temporal_weights=True):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.config = config
-        self.alpha=config.alpha
+        self.alpha = config.alpha
 
-        self.bert = BertOrthogonalTemporalModel(config, init_temporal_weights=init_temporal_weights)
+        self.bert = BertOrthogonalModel(
+            config, init_temporal_weights=init_temporal_weights
+        )
         classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+            config.classifier_dropout
+            if config.classifier_dropout is not None
+            else config.hidden_dropout_prob
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.post_init()       
+        self.post_init()
         self.init_temporal_weights()
 
     def forward(
@@ -541,7 +666,9 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
             config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
             `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
         outputs = self.bert(
             input_ids,
@@ -565,7 +692,9 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
             if self.config.problem_type is None:
                 if self.num_labels == 1:
                     self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                elif self.num_labels > 1 and (
+                    labels.dtype == torch.long or labels.dtype == torch.int
+                ):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
@@ -583,7 +712,9 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
                 loss_fct = nn.BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
 
-            if self.alpha != 0 and self.training: # Penalize query and key weights for deviating far from each other
+            if (
+                self.alpha != 0 and self.training
+            ):  # Penalize query and key weights for deviating far from each other
                 loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
@@ -596,6 +727,6 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-    
+
     def init_temporal_weights(self):
         self.bert.init_temporal_weights()

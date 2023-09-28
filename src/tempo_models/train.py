@@ -170,7 +170,7 @@ def initialize_mlm_model(
             model = BertForOrthogonalMaskedLM(OrthogonalConfig(n_contexts, alpha))
             model = copy_weights(base_bert_model, model)
         if time_token == "special":
-            model.resize_token_embeddings(vocab_size + n_contexts)
+            model.resize_token_embeddings(vocab_size + n_contexts, pad_to_multiple_of=16)
         return model
     elif model_architecture == "t5":
         raise ValueError(
@@ -213,6 +213,6 @@ def initialize_cls_model_from_mlm(
     model = dispatch_dict_cls[model_architecture](config)
     model = copy_weights(pretrained_model, model)
     if time_token == "special":
-        model.resize_token_embeddings(vocab_size + n_contexts)
+        model.resize_token_embeddings(vocab_size + n_contexts, pad_to_multiple_of=16)
 
     return model
