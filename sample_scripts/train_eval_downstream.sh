@@ -1,35 +1,36 @@
-OUTPUT_DIR=output/reddit # The same output dir as the upstream task.
-DOWNSTREAM_DATA_DIR=data/reddit/processed/news_psp
-RESULTS_DIR=results/reddit
+BASE_DIR=/local/scratch/shared/groupdir2/reddit
+OUTPUT_DIR=$BASE_DIR/output/5e-6 # The same output dir as the upstream task.
+DOWNSTREAM_DATA_DIR=$BASE_DIR/data/psp_small_trunc
+RESULTS_DIR=$BASE_DIR/results/5e-6
 
-MODEL=bert
-ADD_TIME_TOKEN=none
-MLM_DIR_NAME=bert_1m # The specific folder where you stored the checkpoints for this model.
-CLS_DIR_NAME=bert_1m_cls
+MODEL=$1
+ADD_TIME_TOKEN=$2
+MLM_DIR_NAME=$3 # The specific folder where you stored the checkpoints for this model.
+CLS_DIR_NAME=$3_cls
 
-CHECKPOINT_DIR=$OUTPUT_DIR/$MLM_DIR_NAME/checkpoint-212500 # Change this number!
+CHECKPOINT_DIR=$OUTPUT_DIR/$MLM_DIR_NAME/checkpoint-19425 # Change this number!
 
-python run_train.py	-m $MODEL \
+#python ../run_train.py	-m $MODEL \
+#    --task cls \
+#    --n-contexts 12 \
+#    --batch-size 256 \
+#    --num-epochs 5 \
+#    --lr 5e-6 \
+#    --data-dir $DOWNSTREAM_DATA_DIR \
+#    --pretrain-dir $CHECKPOINT_DIR \
+#    --output-dir "$OUTPUT_DIR/$CLS_DIR_NAME" \
+#    --num-labels 5 \
+#    --add-time-token $ADD_TIME_TOKEN \
+#    --use-fp16 \
+#    --auto-batch
+
+python ../run_evaluate.py -m $MODEL \
     --task cls \
     --n-contexts 12 \
-    --batch-size 512 \
-    --num-epochs 5 \
-    --lr 5e-5 \
+    --batch-size 256 \
     --data-dir $DOWNSTREAM_DATA_DIR \
-    --pretrain-dir $CHECKPOINT_DIR \
-    --output-dir "$OUTPUT_DIR/$DIR_NAME" \
-    --num-labels 5 \
-    --add-time-token $ADD_TIME_TOKEN \
-    --use-fp16 \
-    --auto-batch
-
-python run_evaluate.py	-m $MODEL \
-    --task mlm \
-    --n-contexts 12 \
-    --batch-size 64 \
-    --data-dir $DOWNSTREAM_DATA_DIR \
-    --checkpoint-group-dir "$OUTPUT_DIR/$DIR_NAME" \
-    --results-dir "$RESULTS_DIR/$DIR_NAME" \
+    --checkpoint-group-dir "$OUTPUT_DIR/$CLS_DIR_NAME" \
+    --results-dir "$RESULTS_DIR/$CLS_DIR_NAME" \
     --add-time-token $ADD_TIME_TOKEN \
     --use-fp16
 

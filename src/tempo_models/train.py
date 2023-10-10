@@ -6,21 +6,24 @@ import os
 import torch
 from datasets import load_from_disk
 from torch.cuda import empty_cache
-from transformers import AutoModelForMaskedLM, BertConfig, TrainingArguments
+from transformers import T5ForConditionalGeneration, BertConfig, TrainingArguments
 from transformers.models.bert.modeling_bert import (
     BertForMaskedLM,
     BertForSequenceClassification,
 )
-
 from tempo_models.models.bert.orthogonal_bert import (
     BertForOrthogonalMaskedLM,
     BertForOrthogonalSequenceClassification,
-    OrthogonalConfig,
+    OrthogonalBertConfig,
 )
 from tempo_models.models.bert.tempo_bert import (
     BertForTemporalMaskedLM,
     BertForTemporalSequenceClassification,
     TempoBertConfig,
+)
+from tempo_models.models.t5.orthogonal_t5 import (
+    T5ForOrthogonalConditionalGeneration,
+    OrthogonalT5Config    
 )
 from tempo_models.utils import (
     NonShuffledTrainer,
@@ -28,7 +31,7 @@ from tempo_models.utils import (
     fetch_tokenizer,
     shuffle_batched,
 )
-from tempo_models.utils.collator import CollatorCLS, CollatorMLM
+from tempo_models.utils.collator import CollatorCLS, CollatorMLM, CollatorSSM
 
 
 def train(args):
@@ -52,6 +55,8 @@ def train(args):
         collator = CollatorMLM(tokenizer)
     elif args.task == "cls":
         collator = CollatorCLS(tokenizer)
+    elif args.task == "ssm":
+        collator = CollatorSSM(tokenizer)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -94,6 +99,16 @@ def train(args):
             args.time_token,
             tokenizer.vocab_size,
         )
+    elif args.task == "ssm":
+        model = initialize_ssm_model(
+            args.model_architecture,
+            args.attention,
+            args.n_contexts,
+            args.alpha,
+            args.time_token,
+            tokenizer.vocab_size,
+        )
+    
 
     ### Prepare training setup
     save_strategy = "epoch"
@@ -161,13 +176,13 @@ def initialize_mlm_model(
 ):
     """Initializes a model for the first time, ready for training."""
     if model_architecture == "bert":
-        base_bert_model = AutoModelForMaskedLM.from_pretrained("bert-base-uncased")
+        base_bert_model = BertForMaskedLM.from_pretrained("bert-base-uncased")
         model = base_bert_model
         if attention == "tempo_bert":
-            model = BertForTemporalMaskedLM(TempoBertConfig(n_contexts))
+            model = BertForTemporalMaskedLM(TempoBertConfig.from_pretrained("bert-base-uncased", n_contexts=n_contexts))
             model = copy_weights(base_bert_model, model)
         elif attention == "orthogonal":
-            model = BertForOrthogonalMaskedLM(OrthogonalConfig(n_contexts, alpha))
+            model = BertForOrthogonalMaskedLM(OrthogonalBertConfig.from_pretrained("bert-base-uncased", n_contexts=n_contexts, alpha=alpha))
             model = copy_weights(base_bert_model, model)
         if time_token == "special":
             model.resize_token_embeddings(vocab_size + n_contexts, pad_to_multiple_of=16)
@@ -176,6 +191,34 @@ def initialize_mlm_model(
         raise ValueError(
             "Sorry, we don't support T5 models for masked language modeling yet."
         )
+
+def initialize_ssm_model(
+    model_architecture: str,
+    attention: str,
+    n_contexts: int,
+    alpha: float = 0,
+    time_token: str = None,
+    vocab_size: int = 30522,
+):
+    """Initializes a model for the first time, ready for training."""
+    if model_architecture == "bert":
+        raise ValueError(
+            "Sorry, we don't support BERT models for salient span masking yet."
+        )
+    elif model_architecture == "t5":
+        base_t5_model = T5ForConditionalGeneration.from_pretrained("t5-base")
+        model = base_t5_model
+        if attention == "tempo_bert":
+            raise ValueError(
+                "Sorry, we don't support T5 models with the TempoBERT attention yet."
+            )
+        elif attention == "orthogonal":
+            model = T5ForOrthogonalConditionalGeneration(
+                OrthogonalT5Config.from_pretrained("t5-base", n_contexts=n_contexts, alpha=alpha))
+            model = copy_weights(base_t5_model, model)
+        if time_token == "special":
+            model.resize_token_embeddings(vocab_size + n_contexts, pad_to_multiple_of=16)
+        return model
 
 
 def initialize_cls_model_from_mlm(
@@ -201,7 +244,7 @@ def initialize_cls_model_from_mlm(
     dispatch_dict_config = {
         "bert": BertConfig,
         "tempo_bert": TempoBertConfig,
-        "orthogonal": OrthogonalConfig,
+        "orthogonal": OrthogonalBertConfig,
     }
 
     pretrained_model = dispatch_dict_mlm[model_architecture].from_pretrained(

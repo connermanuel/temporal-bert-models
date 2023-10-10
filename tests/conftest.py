@@ -1,11 +1,10 @@
 import pytest
 import torch
 from datasets import load_from_disk
-from transformers import AutoTokenizer, BertForMaskedLM
+from transformers import AutoTokenizer, BertForMaskedLM, T5ForConditionalGeneration
 from torch.utils.data import DataLoader
-from tempo_models.utils.collator import CollatorMLM, CollatorCLS
-from tempo_models.train import initialize_mlm_model
-
+from tempo_models.utils.collator import CollatorMLM, CollatorCLS, CollatorSSM
+from tempo_models.train import initialize_mlm_model, initialize_ssm_model
 
 @pytest.fixture(scope="session")
 def device():
@@ -18,12 +17,16 @@ def device():
 def tokenizer_bert():
     return AutoTokenizer.from_pretrained("bert-base-uncased")
 
+@pytest.fixture(scope="session")
+def tokenizer_t5():
+    return AutoTokenizer.from_pretrained("t5-base")
+
 ##### DATASETS #####
 @pytest.fixture(scope="session")
 def dataset_mlm():
     return load_from_disk("tests/sample_data/sample_data_mlm")
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def dataloader_mlm(dataset_mlm, tokenizer_bert):
     return DataLoader(
         dataset=dataset_mlm,
@@ -35,11 +38,23 @@ def dataloader_mlm(dataset_mlm, tokenizer_bert):
 def dataset_cls():
     return load_from_disk("tests/sample_data/sample_data_cls")
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def dataloader_cls(dataset_cls, tokenizer_bert):
     return DataLoader(
         dataset=dataset_cls,
         collate_fn=CollatorCLS(tokenizer_bert),
+        batch_size=4
+        )
+
+@pytest.fixture(scope="session")
+def dataset_ssm():
+    return load_from_disk("tests/sample_data/sample_data_ssm")
+
+@pytest.fixture()
+def dataloader_ssm(dataset_ssm, tokenizer_t5):
+    return DataLoader(
+        dataset=dataset_ssm,
+        collate_fn=CollatorSSM(tokenizer_t5),
         batch_size=4
         )
 
@@ -53,3 +68,10 @@ def model_bert_base(device):
 def model_bert_orth(device):
     return initialize_mlm_model("bert", "orthogonal", 12).to(device)
 
+@pytest.fixture()
+def model_t5_base(device):
+    return T5ForConditionalGeneration.from_pretrained("t5-base").to(device)
+
+@pytest.fixture()
+def model_t5_orth(device):
+    return initialize_ssm_model("t5", "orthogonal", 11).to(device)

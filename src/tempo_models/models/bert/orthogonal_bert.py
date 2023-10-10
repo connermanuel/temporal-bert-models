@@ -42,7 +42,7 @@ import os
 TIMESTAMP_PAD = 2
 
 
-class OrthogonalConfig(BertConfig):
+class OrthogonalBertConfig(BertConfig):
     def __init__(self, n_contexts=2, alpha=0, init_temporal_weights=True, **kwargs):
         super().__init__(**kwargs)
         self.n_contexts = n_contexts
@@ -53,7 +53,7 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
     def __init__(self, config):
         self.n_contexts = config.n_contexts
         super().__init__(config)
-        self.query_time_layers = nn.ModuleList(
+        self.q_time = nn.ModuleList(
             [
                 orthogonal(
                     MultiHeadLinear(
@@ -66,7 +66,7 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
                 for _ in range(self.n_contexts + 2)
             ]
         )
-        self.key_time_layers = nn.ModuleList(
+        self.k_time = nn.ModuleList(
             [
                 orthogonal(
                     MultiHeadLinear(
@@ -82,8 +82,8 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
 
     def init_temporal_weights(self):
         """Initializes all of the orthogonal layers to have the same weights, since O @ O^T = I."""
-        state_dict = self.query_time_layers[0].state_dict()
-        for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
+        state_dict = self.q_time[0].state_dict()
+        for query_layer, key_layer in zip(self.q_time, self.k_time):
             query_layer.load_state_dict(state_dict)
             key_layer.load_state_dict(state_dict)
 
@@ -110,10 +110,10 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
         masks = [
             torch.unsqueeze(timestamps == val, 1)[..., None] for val in timestamp_vals
         ]
-        temporal_conditioned_layers = [
-            time_layers[val + TIMESTAMP_PAD](original_layer) * mask
-            for val, mask in zip(timestamp_vals, masks)
-        ]
+        temporal_conditioned_layers = []
+        for val, mask in zip(timestamp_vals, masks):
+            modified_layer = time_layers[val + TIMESTAMP_PAD](original_layer)
+            temporal_conditioned_layers.append(modified_layer * mask)
         temporal_conditioned_layer = torch.stack(
             temporal_conditioned_layers, dim=0
         ).sum(dim=0)
@@ -145,10 +145,10 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
             mixed_value_layer = self.value(hidden_states)
 
         timed_query_layer = self.construct_time_matrix(
-            mixed_query_layer, self.query_time_layers, timestamps
+            mixed_query_layer, self.q_time, timestamps
         )
         timed_key_layer = self.construct_time_matrix(
-            mixed_key_layer, self.key_time_layers, timestamps
+            mixed_key_layer, self.k_time, timestamps
         )
         value_layer = self.transpose_for_scores(mixed_value_layer)
 

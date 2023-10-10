@@ -6,6 +6,7 @@ results
 __pycache__
 run.log
 *.egg-info
+sample_scripts
 
 # Remove stuff that I used for local experimentation lol
 playground.ipynb

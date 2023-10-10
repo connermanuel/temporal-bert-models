@@ -1,16 +1,11 @@
 """Tests that the initialization function does work."""
 import pytest
-from pathlib import Path
+import functools
 
 import torch
-from torch.utils.data import DataLoader
-from datasets import load_from_disk
 from transformers import BertConfig, BertForMaskedLM
-from transformers import AutoTokenizer
 
-from tempo_models.train import copy_weights, initialize_mlm_model
-from tempo_models.utils.collator import CollatorMLM
-from tempo_models.models.bert import BertOrthogonalSelfAttention, OrthogonalConfig
+from tempo_models.train import copy_weights
 
 
 def test_copy_weights():
@@ -24,45 +19,40 @@ def test_copy_weights():
     )
 
 
-def test_initialization_orthogonal_mlm(
-    dataloader_mlm, model_bert_base, model_bert_orth, device
+@pytest.mark.parametrize(
+        "dataloader,model_base,model_orth",
+        [
+            ("dataloader_mlm", "model_bert_base", "model_bert_orth"),
+            ("dataloader_ssm", "model_t5_base", "model_t5_orth"),
+        ]
+)
+def test_initialization_orthogonal(
+    dataloader, model_base, model_orth, device, request
 ):
-    ### This test verifies that the behavior of the initialized orthogonal model is roughly the same as the base BERT model.
-    ### "Roughly" because the product of the orthogonal matrix is not exactly the identity.
+    ### This test verifies that the behavior of the initialized orthogonal model is roughly the same as the base model
+    dataloader = request.getfixturevalue(dataloader)
+    model_base = request.getfixturevalue(model_base)
+    model_orth = request.getfixturevalue(model_orth)
 
-    model_bert_orth.eval()
-    model_bert_base.eval()
+    model_base.eval()
+    model_orth.eval()
 
-    sample_input = next(iter(dataloader_mlm)).to(device)
+    sample_input = next(iter(dataloader)).to(device)
 
-    output_orth = model_bert_orth(**sample_input)
-    sample_input.pop("timestamps")
-    output_base = model_bert_base(**sample_input)
+    output_orth = model_orth(**sample_input)
+    for k in list(sample_input.keys()):
+        if "timestamps" in k:
+            sample_input.pop(k)
+    output_base = model_base(**sample_input)
 
-    mask = sample_input["labels"] != 100
+    mask = sample_input["labels"] != -100
     logits_orth = output_orth["logits"][mask]
     logits_base = output_base["logits"][mask]
 
-    assert torch.equal(torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1]) # fails
+    assert torch.equal(torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1]) 
 
-def test_initialization_orthogonal_decoupling_attention():
-    ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
-    att = BertOrthogonalSelfAttention(OrthogonalConfig())
-    att.init_temporal_weights()
-    opt = torch.optim.Adam(att.parameters(), lr=1)
+def test_initialization_orthogonal_decoupling_bert(dataloader_mlm, model_bert_orth, device):
 
-    ipt = torch.rand(att.query_time_layers[0].weight.shape)
-    ipt_2 = torch.rand(att.query_time_layers[0].weight.shape)
-    loss = (att.query_time_layers[0](ipt) @ att.key_time_layers[0](ipt_2).transpose(-1, -2)).sum()
-    loss.backward()
-    opt.step()
-
-    assert not torch.allclose(
-        att.query_time_layers[0].weight,
-        att.key_time_layers[0].weight,
-    )
-
-def test_initialization_orthogonal_decoupling(dataloader_mlm, model_bert_orth, device):
     ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
 
     optim = torch.optim.Adam(model_bert_orth.parameters())
@@ -71,8 +61,8 @@ def test_initialization_orthogonal_decoupling(dataloader_mlm, model_bert_orth, d
     assert all(
         [
             torch.allclose(
-                model_bert_orth.bert.encoder.layer[0].attention.self.query_time_layers[i].weight,
-                model_bert_orth.bert.encoder.layer[0].attention.self.key_time_layers[i].weight,
+                model_bert_orth.bert.encoder.layer[0].attention.self.q_time[i].weight,
+                model_bert_orth.bert.encoder.layer[0].attention.self.k_time[i].weight,
             )
             for i in range(12)
         ]
@@ -85,11 +75,41 @@ def test_initialization_orthogonal_decoupling(dataloader_mlm, model_bert_orth, d
     assert not all(
         [
             torch.allclose(
-                model_bert_orth.bert.encoder.layer[0].attention.self.query_time_layers[i].weight,
-                model_bert_orth.bert.encoder.layer[0].attention.self.key_time_layers[i].weight,
+                model_bert_orth.bert.encoder.layer[0].attention.self.q_time[i].weight,
+                model_bert_orth.bert.encoder.layer[0].attention.self.k_time[i].weight,
             )
             for i in range(12)
         ]
     )
 
 
+def test_initialization_orthogonal_decoupling_t5(dataloader_ssm, model_t5_orth, device):
+
+    ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
+
+    optim = torch.optim.Adam(model_t5_orth.parameters())
+    input = next(iter(dataloader_ssm)).to(device)
+
+    assert all(
+        [
+            torch.allclose(
+                model_t5_orth.encoder.block[0].layer[0].SelfAttention.q_time[i].weight,
+                model_t5_orth.encoder.block[0].layer[0].SelfAttention.k_time[i].weight,
+            )
+            for i in range(11)
+        ]
+    )
+
+    optim.zero_grad()
+    model_t5_orth(**input)["loss"].backward()
+    optim.step()
+
+    assert not all(
+        [
+            torch.allclose(
+                model_t5_orth.encoder.block[0].layer[0].SelfAttention.q_time[i].weight,
+                model_t5_orth.encoder.block[0].layer[0].SelfAttention.k_time[i].weight,
+            )
+            for i in range(11)
+        ]
+    )

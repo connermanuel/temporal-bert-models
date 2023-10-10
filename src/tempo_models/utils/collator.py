@@ -5,13 +5,15 @@ from transformers import PreTrainedTokenizerBase, BatchEncoding
 from typing import Optional, List, Union, Any, Dict, Mapping, Tuple, Iterable
 from tempo_models.utils import to_list, to_tensor
 from tempo_models.models.bert.orthogonal_bert import TIMESTAMP_PAD
+import random
 
 
 def pad_column(seq_len: int, column: Iterable, pad_value: Union[int, float]):
     return torch.tensor(
         [to_list(value) + [pad_value] * (seq_len - len(value)) for value in column],
-        dtype=torch.int,
+        dtype=torch.long,
     )
+
 
 @dataclass
 class CollatorMLM:
@@ -155,53 +157,94 @@ class CollatorCLS:
 
 
 @dataclass
-class CollatorSeq2Seq:
+class CollatorSSM:
+    """
+    Data collator used for timestamps-augmented salient span masking.
+    Inputs must contain the following columns:
+    * span_ids -- a list of [start, end] index pairs
+    * timestamps -- a list containing any integer from 0 to num_timestamps - 1, repeated len(input_ids) times
+    * input_ids -- result of input_ids from tokenizer
+    Inputs are dynamically padded to the maximum length of a batch if they are not all of the same length.
+    """
+
     tokenizer: PreTrainedTokenizerBase
-    model: Optional[Any] = None
-    label_pad_token_id: int = -100
+    pad_to_multiple_of: Optional[int] = None
     timestamp_pad_value: int = -TIMESTAMP_PAD
+    timestamp_mask_value: int = -1
+    label_pad_value: int = -100
+    special_token_0: int = 32099
+    special_token_1: int = 32098
+    eos_token: int = 1
 
-    def __call__(self, features):
-        labels = (
-            [feature["labels"] for feature in features]
-            if "labels" in features[0].keys()
-            else None
-        )
+    def __call__(
+        self, examples: List[Union[List[int], Any, Dict[str, Any]]]
+    ) -> Dict[str, Any]:
         timestamps = (
-            [feature["timestamps"] for feature in features]
-            if "timestamps" in features[0].keys()
+            [example["timestamps"] for example in examples]
+            if "timestamps" in examples[0].keys()
             else None
         )
+        input_ids = [example["input_ids"] for example in examples]
+        span_ids = [example["span_ids"] for example in examples]
 
-        features = [
-            {k: v for k, v in feature.items() if k != "timestamps"}
-            for feature in features
-        ]
-
-        features = self.tokenizer.pad(
-            features,
-            return_tensors="pt",
+        input_ids, labels, timestamps, label_timestamps = self.mask_tokens(
+            input_ids, span_ids, timestamps
         )
-        
+
+        batch = self.tokenizer.pad(
+            {"input_ids": input_ids},
+            return_tensors="pt",
+            pad_to_multiple_of=self.pad_to_multiple_of,
+        )
+
         if timestamps is not None:
-            features["timestamps"] = pad_column(
-                features["input_ids"].shape[1], timestamps, self.timestamp_pad_value
+            timestamps = pad_column(
+                batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value
             )
-        
-        if labels is not None:
-            features["labels"] = pad_column(
-                features["input_ids"].shape[1], labels, self.label_pad_token_id
-            )
+            batch["timestamps"] = timestamps
 
-        # prepare decoder_input_ids
-        if (
-            labels is not None
-            and self.model is not None
-            and hasattr(self.model, "prepare_decoder_input_ids_from_labels")
-        ):
-            decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(
-                labels=features["labels"]
-            )
-            features["decoder_input_ids"] = decoder_input_ids
+        batch["labels"] = pad_column(
+            max([len(l) for l in labels]), labels, self.label_pad_value
+        )
+        batch["label_timestamps"] = pad_column(
+            batch["labels"].shape[1], label_timestamps, self.timestamp_pad_value
+        )
 
-        return features
+        return batch
+
+    def mask_tokens(
+        self,
+        inputs: list[list[int]],
+        span_ids: list[list[list[int]]],
+        timestamps: list[list[int]],
+    ) -> Tuple[Any, Any]:
+        """
+        Prepare masked tokens inputs/labels for salient span masking.
+        Retrieve one [start, end] pair from the provided set of span_ids,
+        mask the corresponding tokens from the input_ids,
+        and return the masked section as the labels.
+        Resize the timestamps to match.
+        """
+        label_timestamps=None
+        selected_span_ids = [random.choice(span_pairs) for span_pairs in span_ids]
+        labels = [
+            [self.special_token_0]
+            + input[span_pair[0] : span_pair[1]]
+            + [self.special_token_1, self.eos_token]
+            for input, span_pair in zip(inputs, selected_span_ids)
+        ]
+        inputs = [
+            input[: span_pair[0]] + [self.special_token_0] + input[span_pair[1] :]
+            for input, span_pair in zip(inputs, selected_span_ids)
+        ]
+        if timestamps:
+            timestamps = [
+                [timestamp[0]] * len(input)
+                for timestamp, input in zip(timestamps, inputs)
+            ]
+            label_timestamps = [
+                [timestamp[0]] * len(label)
+                for timestamp, label in zip(timestamps, labels)
+            ]
+
+        return inputs, labels, timestamps, label_timestamps

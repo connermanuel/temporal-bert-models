@@ -11,7 +11,7 @@ from tempo_models.models.bert.tempo_bert import (
     BertForTemporalMaskedLM,
     BertForTemporalSequenceClassification,
 )
-from tempo_models.utils.collator import CollatorCLS, CollatorMLM
+from tempo_models.utils.collator import CollatorCLS, CollatorMLM, CollatorSSM
 from tempo_models.utils.metrics import (
     create_metric_func,
     mlm_metric_accuracy,
@@ -75,6 +75,8 @@ def evaluate(args):
         collator = CollatorMLM(tokenizer)
     elif args.task == "cls":
         collator = CollatorCLS(tokenizer)
+    elif args.task == "ssm":
+        collator = CollatorSSM(tokenizer)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -136,7 +138,8 @@ def evaluate(args):
                 "weighted_f1": cls_metric_weighted_f1,
             }
         )
-
+    elif args.task == "ssm":
+        raise ValueError("Gotta do this!")
     dataset = remove_unused_columns(dataset, ModelClass)
 
     results = {}
@@ -152,7 +155,7 @@ def evaluate(args):
                 data_collator=collator,
             )
             model_results = trainer.evaluate()
-        else:
+        elif args.task=="mlm":
             model_results = evaluate_mlm(model, dataset, collator, no_cuda=args.no_cuda) # TODO: Figure this out!! It would be much better if we can just do MLM straight through the trainer.
         results[model_dir] = model_results
 
