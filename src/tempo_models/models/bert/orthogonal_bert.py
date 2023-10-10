@@ -174,13 +174,6 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
         )
         return outputs
 
-    def get_temporal_layer_weights(self):
-        weights = []
-        for query_layer, key_layer in zip(self.query_time_layers, self.key_time_layers):
-            out = (query_layer.weight, key_layer.weight)
-            weights.append(out)
-        return weights
-
 
 class BertOrthogonalAttention(BertAttention):
     def __init__(self, config):
@@ -211,9 +204,6 @@ class BertOrthogonalAttention(BertAttention):
             1:
         ]  # add attentions if we output them
         return outputs
-
-    def get_temporal_layer_weights(self):
-        return self.self.get_temporal_layer_weights()
 
 
 class BertOrthogonalLayer(BertLayer):
@@ -268,9 +258,6 @@ class BertOrthogonalLayer(BertLayer):
         )
         outputs = (layer_output,) + outputs
         return outputs
-
-    def get_temporal_layer_weights(self):
-        return self.attention.get_temporal_layer_weights()
 
 
 class BertOrthogonalEncoder(BertEncoder):
@@ -359,9 +346,6 @@ class BertOrthogonalEncoder(BertEncoder):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
-
-    def get_temporal_layer_weights(self):
-        return sum([layer.get_temporal_layer_weights() for layer in self.layer], [])
 
     def init_temporal_weights(self):
         [layer.attention.self.init_temporal_weights() for layer in self.layer]
@@ -513,16 +497,6 @@ class BertOrthogonalModel(BertModel):
             cross_attentions=encoder_outputs.cross_attentions,
         )
 
-    def get_temporal_layer_weights(self):
-        return self.encoder.get_temporal_layer_weights()
-
-    def get_weight_penalty(self):
-        penalty = 0
-        layer_weights = self.bert.get_temporal_layer_weights()
-        for query_weight, key_weight in layer_weights:
-            penalty += F.mse_loss(query_weight, key_weight)
-        return penalty
-
     def init_temporal_weights(self):
         self.encoder.init_temporal_weights()
 
@@ -602,11 +576,6 @@ class BertForOrthogonalMaskedLM(BertForMaskedLM):
             masked_lm_loss = loss_fct(
                 prediction_scores.view(-1, self.config.vocab_size), labels.view(-1)
             )
-            # TODO: Optimize
-            if (
-                self.alpha != 0 and self.training
-            ):  # Penalize query and key weights for deviating far from each other
-                masked_lm_loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
@@ -711,11 +680,6 @@ class BertForOrthogonalSequenceClassification(BertPreTrainedModel):
             elif self.config.problem_type == "multi_label_classification":
                 loss_fct = nn.BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
-
-            if (
-                self.alpha != 0 and self.training
-            ):  # Penalize query and key weights for deviating far from each other
-                loss += self.alpha * self.bert.get_weight_penalty()
 
         if not return_dict:
             output = (logits,) + outputs[2:]

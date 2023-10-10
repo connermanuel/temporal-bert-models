@@ -24,12 +24,14 @@ def test_copy_weights():
     )
 
 
-@pytest.mark.skip('Cannot determine how "close enough" behavior should be')
 def test_initialization_orthogonal_mlm(
     dataloader_mlm, model_bert_base, model_bert_orth, device
 ):
     ### This test verifies that the behavior of the initialized orthogonal model is roughly the same as the base BERT model.
     ### "Roughly" because the product of the orthogonal matrix is not exactly the identity.
+
+    model_bert_orth.eval()
+    model_bert_base.eval()
 
     sample_input = next(iter(dataloader_mlm)).to(device)
 
@@ -41,11 +43,7 @@ def test_initialization_orthogonal_mlm(
     logits_orth = output_orth["logits"][mask]
     logits_base = output_base["logits"][mask]
 
-    preds_side_by_side = torch.hstack(
-        (torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1])
-    )
-
-    assert torch.allclose(output_orth["logits"], output_base["logits"])  # fails
+    assert torch.equal(torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1]) # fails
 
 def test_initialization_orthogonal_decoupling_attention():
     ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
