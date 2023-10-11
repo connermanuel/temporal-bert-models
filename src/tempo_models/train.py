@@ -73,6 +73,8 @@ def train(args):
         dataset = add_special_time_tokens(
             dataset, tokenizer.vocab_size, args.time_token
         )
+        if args.attention == "base" and "timestamps" in dataset["train"].features.keys():
+            dataset = dataset.remove_columns("timestamps")
 
     if args.save_dataset:
         logging.info(f"Saving the dataset to {args.save_dataset}")
@@ -123,6 +125,7 @@ def train(args):
         output_dir=args.output_dir,
         overwrite_output_dir=True,
         logging_strategy="epoch",
+        evaluation_strategy="epoch",
         save_strategy=save_strategy,
         save_steps=save_steps,
         learning_rate=args.lr,
@@ -133,7 +136,7 @@ def train(args):
         use_cpu=args.no_cuda,
         num_train_epochs=args.num_epochs,
         max_steps=args.num_steps,
-        remove_unused_columns=True,
+        remove_unused_columns=args.remove_unused_columns,
     )
 
     trainer = NonShuffledTrainer(

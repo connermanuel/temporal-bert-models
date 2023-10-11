@@ -21,7 +21,7 @@ model_args.add_argument(
     "--task",
     help="The task to train on.",
     type=str,
-    choices=["mlm", "cls"],
+    choices=["mlm", "cls", "ssm"],
     required=True,
 )
 model_args.add_argument(
@@ -71,4 +71,9 @@ data_args.add_argument(
     "--save-dataset",
     help="After processing, stores the dataset to this location.",
     default=None,
+)
+data_args.add_argument(
+    "--remove-unused-columns",
+    help="Removes any columns not passed into the model's \"forward\" call before inserting into the trainer. Might need this for MLM and CLS, probably will break SSM.",
+    action="store_true",
 )

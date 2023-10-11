@@ -12,10 +12,6 @@ class NonShuffledTrainer(Trainer):
         return None
 
 #############################
-# MODEL UTILS              #
-#############################
-
-#############################
 # TOKENIZER UTILS           #
 #############################
 
@@ -23,7 +19,7 @@ def fetch_tokenizer(model: str, time_token: str, n_contexts: int) -> PreTrainedT
     if model == "bert":
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     elif model == "t5":
-        tokenizer = AutoTokenizer.from_pretrained('t5-base')
+        tokenizer = AutoTokenizer.from_pretrained('t5-base', model_max_length=512)
     
     if time_token == "special":
         special_tokens = [f"timestamp: {t} text: " for t in range(n_contexts)]

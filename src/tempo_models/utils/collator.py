@@ -196,19 +196,18 @@ class CollatorSSM:
             return_tensors="pt",
             pad_to_multiple_of=self.pad_to_multiple_of,
         )
-
-        if timestamps is not None:
-            timestamps = pad_column(
-                batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value
-            )
-            batch["timestamps"] = timestamps
-
+        
         batch["labels"] = pad_column(
             max([len(l) for l in labels]), labels, self.label_pad_value
         )
-        batch["label_timestamps"] = pad_column(
-            batch["labels"].shape[1], label_timestamps, self.timestamp_pad_value
-        )
+
+        if timestamps is not None:
+            batch["timestamps"]  = pad_column(
+                batch["input_ids"].shape[1], timestamps, self.timestamp_pad_value
+            )
+            batch["label_timestamps"] = pad_column(
+                batch["labels"].shape[1], label_timestamps, self.timestamp_pad_value
+            )
 
         return batch
 
