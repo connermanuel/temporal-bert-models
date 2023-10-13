@@ -178,3 +178,43 @@ def evaluate_mlm(model, dataset, data_collator,
         'accuracy': accuracy, 
         'mrr': mrr,
     }
+
+def evaluate_ssm(model, dataset, data_collator, 
+             no_cuda=False, batch_size=16, pad_id=-100):
+    """
+    Compute token-level F1 metrics.
+    """
+    if not no_cuda:
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+    model.eval().to(device)
+
+    total_f1 = 0
+    total_predictions = 0
+    correct_predictions = 0
+    num_iterations = math.ceil(len(dataset) / batch_size)
+
+    with torch.no_grad():
+        for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=num_iterations):
+            input = data_collator(data).to(device)
+            labels = input["labels"]
+
+            out = model(**input)
+            logits = out['logits']
+            idx_labels = torch.nonzero(labels != pad_id)
+            labels = labels[idx[:, 0], idx[:, 1]].to(device) ## is a list of length n
+            logits_masked = logits[idx[:, 0], idx[:, 1]].to(device) ## should now be of shape n x n_tokens
+            logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
+
+            ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
+            total_ranks = torch.cat((total_ranks, ranks.cpu()))
+            total_mrr += (1/ranks).sum().item()
+    
+    accuracy = 100 * correct_predictions / total_predictions
+    mrr = total_mrr / total_predictions
+    return {
+        'perplexity': perplexity, 
+        'accuracy': accuracy, 
+        'mrr': mrr,
+    }

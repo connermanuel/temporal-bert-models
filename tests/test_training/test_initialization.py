@@ -20,15 +20,13 @@ def test_copy_weights():
 
 
 @pytest.mark.parametrize(
-        "dataloader,model_base,model_orth",
-        [
-            ("dataloader_mlm", "model_bert_base", "model_bert_orth"),
-            ("dataloader_ssm", "model_t5_base", "model_t5_orth"),
-        ]
+    "dataloader,model_base,model_orth",
+    [
+        ("dataloader_mlm", "model_bert_base", "model_bert_orth"),
+        ("dataloader_ssm", "model_t5_base", "model_t5_orth"),
+    ],
 )
-def test_initialization_orthogonal(
-    dataloader, model_base, model_orth, device, request
-):
+def test_initialization_orthogonal(dataloader, model_base, model_orth, device, request):
     ### This test verifies that the behavior of the initialized orthogonal model is roughly the same as the base model
     dataloader = request.getfixturevalue(dataloader)
     model_base = request.getfixturevalue(model_base)
@@ -49,10 +47,14 @@ def test_initialization_orthogonal(
     logits_orth = output_orth["logits"][mask]
     logits_base = output_base["logits"][mask]
 
-    assert torch.equal(torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1]) 
+    assert torch.equal(
+        torch.topk(logits_orth, dim=1, k=3)[1], torch.topk(logits_base, dim=1, k=3)[1]
+    )
 
-def test_initialization_orthogonal_decoupling_bert(dataloader_mlm, model_bert_orth, device):
 
+def test_initialization_orthogonal_decoupling_bert(
+    dataloader_mlm, model_bert_orth, device
+):
     ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
 
     optim = torch.optim.Adam(model_bert_orth.parameters())
@@ -84,7 +86,6 @@ def test_initialization_orthogonal_decoupling_bert(dataloader_mlm, model_bert_or
 
 
 def test_initialization_orthogonal_decoupling_t5(dataloader_ssm, model_t5_orth, device):
-
     ### This test verifies that the query and key layers are not "linked" -- i.e. that they update independently.
 
     optim = torch.optim.Adam(model_t5_orth.parameters())
