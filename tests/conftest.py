@@ -1,3 +1,4 @@
+import os
 import pytest
 import torch
 from datasets import load_from_disk
@@ -5,6 +6,11 @@ from transformers import AutoTokenizer, BertForMaskedLM, T5ForConditionalGenerat
 from torch.utils.data import DataLoader
 from tempo_models.utils.collator import CollatorMLM, CollatorCLS, CollatorSSM
 from tempo_models.train import initialize_mlm_model, initialize_ssm_model
+
+@pytest.fixture(scope="session", autouse=True)
+def set_cuda_visibility():
+    if torch.cuda.is_available():
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 @pytest.fixture(scope="session")
 def device():
@@ -54,7 +60,7 @@ def dataset_ssm():
 def dataloader_ssm(dataset_ssm, tokenizer_t5):
     return DataLoader(
         dataset=dataset_ssm,
-        collate_fn=CollatorSSM(tokenizer_t5),
+        collate_fn=CollatorSSM(tokenizer_t5, debug=True),
         batch_size=4
         )
 

@@ -1,5 +1,6 @@
 import torch
-from transformers import Trainer, PreTrainedTokenizer, AutoTokenizer, AutoModelForMaskedLM
+import numpy as np
+from transformers import Trainer, PreTrainedTokenizer, AutoTokenizer, EvalPrediction
 from datasets import Dataset
 
 import tqdm
@@ -218,3 +219,17 @@ def evaluate_ssm(model, dataset, data_collator,
         'accuracy': accuracy, 
         'mrr': mrr,
     }
+
+def trainer_get_predictions_from_logits(eval_prediction: EvalPrediction) -> dict:
+    predictions = eval_prediction.predictions
+    label_ids = eval_prediction.label_ids
+    mask = label_ids != 100
+    correct = np.logical_and((predictions == label_ids), mask)
+
+    total_tokens = np.sum(mask, axis=1)
+    total_correct = np.sum(correct, axis=1)
+    return (total_tokens / total_correct).mean()
+
+
+def trainer_token_accuracy_from_predictions(logits: torch.nn.Tensor, labels: torch.nn.Tensor) -> torch.nn.Tensor:
+    return torch.argmax(logits, dim=-1)

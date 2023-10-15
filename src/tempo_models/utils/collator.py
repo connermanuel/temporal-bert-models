@@ -175,6 +175,7 @@ class CollatorSSM:
     special_token_0: int = 32099
     special_token_1: int = 32098
     eos_token: int = 1
+    debug: bool = False
 
     def __call__(
         self, examples: List[Union[List[int], Any, Dict[str, Any]]]
@@ -226,6 +227,8 @@ class CollatorSSM:
         """
         label_timestamps=None
         selected_span_ids = [random.choice(span_pairs) for span_pairs in span_ids]
+        if self.debug:
+            selected_span_ids = [span_pairs[0] for span_pairs in span_ids]
         labels = [
             [self.special_token_0]
             + input[span_pair[0] : span_pair[1]]

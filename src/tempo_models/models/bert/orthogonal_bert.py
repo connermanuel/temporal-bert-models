@@ -132,7 +132,6 @@ class BertOrthogonalSelfAttention(BertSelfAttention):
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.Tensor]:
         # TODO: change device to be passed in as an arg
-        # TODO: implement compatibility for temporal seq2seq decoding
 
         mixed_query_layer = self.query(hidden_states)
 

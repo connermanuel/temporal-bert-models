@@ -387,18 +387,19 @@ class T5OrthogonalAttention(nn.Module):
             past_key_value[1] if past_key_value is not None else None,
         )
 
-        query_states = self.construct_time_matrix(query_states, self.q_time, timestamps)
-        key_states = self.construct_time_matrix(
+        if key_value_state_timestamps is None:
+            key_value_state_timestamps = timestamps
+        
+        timed_query_states = self.construct_time_matrix(query_states, self.q_time, timestamps)
+        timed_key_states = self.construct_time_matrix(
             key_states,
             self.k_time,
-            timestamps
-            if key_value_state_timestamps is None
-            else key_value_state_timestamps,
-        )
+            key_value_state_timestamps
+        ) 
 
         # compute scores
         scores = torch.matmul(
-            query_states, key_states.transpose(3, 2)
+            timed_query_states, timed_key_states.transpose(3, 2)
         )  # equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
 
         if position_bias is None:
@@ -1569,76 +1570,78 @@ class T5ForOrthogonalConditionalGeneration(T5OrthogonalPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        if encoder_outputs is None:
-            encoder_outputs = self.encoder(
-                input_ids=input_ids,
-                timestamps=timestamps,
-                attention_mask=attention_mask,
-                inputs_embeds=inputs_embeds,
-                head_mask=head_mask,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
+        with torch.no_grad():
+            if encoder_outputs is None:
+                encoder_outputs = self.encoder(
+                    input_ids=input_ids,
+                    timestamps=timestamps,
+                    attention_mask=attention_mask,
+                    inputs_embeds=inputs_embeds,
+                    head_mask=head_mask,
+                    output_attentions=False,
+                    output_hidden_states=False,
+                    return_dict=True,
+                )
+            batch_size = input_ids.shape[0]
+
+            eos_token_id = self.config.eos_token_id
+            pad_token_id = self.config.pad_token_id
+            pad_timestamp_id = -TIMESTAMP_PAD
+
+            decoder_start_token_id = self.config.decoder_start_token_id
+
+            decoder_input_ids = (
+                torch.ones((batch_size, 1), dtype=torch.long, device=self.device)
+                * decoder_start_token_id
             )
-        batch_size = input_ids.shape[0]
+            decoder_timestamps = timestamps[:, :1]
+            decoder_attention_mask = torch.ones(
+                (batch_size, 1), dtype=torch.long, device=self.device
+            )
+            past_key_values = None
 
-        eos_token_id = self.config.eos_token_id
-        pad_token_id = self.config.pad_token_id
-        pad_timestamp_id = -TIMESTAMP_PAD
-
-        decoder_start_token_id = self.config.decoder_start_token_id
-
-        decoder_input_ids = (
-            torch.ones((batch_size, 1), dtype=torch.long, device=self.device)
-            * decoder_start_token_id
-        )
-        decoder_timestamps = timestamps[:, :1]
-        decoder_attention_mask = torch.ones(
-            (batch_size, 1), dtype=torch.long, device=self.device
-        )
-        past_key_values = None
-
-        unfinished_sequences = torch.ones(
-            batch_size, dtype=torch.long, device=self.device
-        )
-
-        finished = False
-        while not finished:
-            outputs = self.forward(
-                decoder_input_ids=decoder_input_ids[:, -1:],
-                decoder_timestamps=decoder_timestamps,
-                decoder_attention_mask=decoder_attention_mask,
-                encoder_outputs=encoder_outputs,
-                timestamps=timestamps,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                use_cache=use_cache,
+            unfinished_sequences = torch.ones(
+                batch_size, dtype=torch.long, device=self.device
             )
 
-            next_token_logits = outputs.logits[:, -1, :]
-            next_tokens = torch.argmax(next_token_logits, dim=-1)
-            next_tokens = next_tokens * unfinished_sequences + pad_token_id * (
-                1 - unfinished_sequences
-            )
+            finished = False
+            while not finished:
+                outputs = self.forward(
+                    decoder_input_ids=decoder_input_ids[:, -1:],
+                    decoder_timestamps=decoder_timestamps,
+                    decoder_attention_mask=decoder_attention_mask,
+                    encoder_outputs=encoder_outputs,
+                    timestamps=timestamps,
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                )
+                
+                past_key_values = outputs.past_key_values
+                next_token_logits = outputs.logits[:, -1, :]
+                next_tokens = torch.argmax(next_token_logits, dim=-1)
+                next_tokens = next_tokens * unfinished_sequences + pad_token_id * (
+                    1 - unfinished_sequences
+                )
+                del outputs
 
-            unfinished_sequences = unfinished_sequences.mul(
-                next_tokens.ne(eos_token_id)
-            )
+                unfinished_sequences = unfinished_sequences.mul(
+                    next_tokens.ne(eos_token_id)
+                )
 
-            decoder_input_ids = torch.cat(
-                [decoder_input_ids, next_tokens[:, None]], dim=-1
-            )
-            decoder_attention_mask = unfinished_sequences.unsqueeze(1)
-            decoder_timestamps = (
-                decoder_timestamps * decoder_attention_mask
-                + pad_timestamp_id * (1 - decoder_attention_mask)
-            )
-            past_key_values = outputs.past_key_values
+                decoder_input_ids = torch.cat(
+                    [decoder_input_ids, next_tokens[:, None]], dim=-1
+                )
+                decoder_attention_mask = unfinished_sequences.unsqueeze(1)
+                decoder_timestamps = (
+                    decoder_timestamps * decoder_attention_mask
+                    + pad_timestamp_id * (1 - decoder_attention_mask)
+                )
 
-            if unfinished_sequences.max() == 0:
-                finished = True
-            if decoder_input_ids.shape[0] == MAX_GENERATE_LENGTH:
-                finished = True
+                if unfinished_sequences.max() == 0:
+                    finished = True
+                if decoder_input_ids.shape[1] == MAX_GENERATE_LENGTH:
+                    finished = True
 
         return decoder_input_ids
 

@@ -2,7 +2,7 @@ import torch
 
 TIMESTAMP_PAD = 2
 
-def construct_time_matrix(self, original_layer: torch.Tensor, time_layers: nn.ModuleList, timestamps: torch.tensor):
+def construct_time_matrix(self, original_layer: torch.Tensor, time_layers: torch.nn.ModuleList, timestamps: torch.tensor):
     """
     Multiply rows of the input matrix with the corresponding time layers.
 
