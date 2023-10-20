@@ -220,16 +220,20 @@ def evaluate_ssm(model, dataset, data_collator,
         'mrr': mrr,
     }
 
-def trainer_get_predictions_from_logits(eval_prediction: EvalPrediction) -> dict:
+def trainer_token_accuracy_from_predictions(eval_prediction: EvalPrediction) -> dict:
     predictions = eval_prediction.predictions
     label_ids = eval_prediction.label_ids
-    mask = label_ids != 100
+    if isinstance(label_ids, tuple):
+        label_ids = label_ids[0]
+    mask = label_ids != -100
     correct = np.logical_and((predictions == label_ids), mask)
 
     total_tokens = np.sum(mask, axis=1)
     total_correct = np.sum(correct, axis=1)
-    return (total_tokens / total_correct).mean()
+    return (total_correct / total_tokens).mean()
 
 
-def trainer_token_accuracy_from_predictions(logits: torch.nn.Tensor, labels: torch.nn.Tensor) -> torch.nn.Tensor:
+def trainer_get_predictions_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    if isinstance(logits, tuple):
+        logits = logits[0]
     return torch.argmax(logits, dim=-1)

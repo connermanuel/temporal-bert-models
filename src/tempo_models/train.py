@@ -30,6 +30,8 @@ from tempo_models.utils import (
     add_special_time_tokens,
     fetch_tokenizer,
     shuffle_batched,
+    trainer_get_predictions_from_logits,
+    trainer_token_accuracy_from_predictions
 )
 from tempo_models.utils.collator import CollatorCLS, CollatorMLM, CollatorSSM
 
@@ -145,6 +147,8 @@ def train(args):
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         data_collator=collator,
+        preprocess_logits_for_metrics=trainer_get_predictions_from_logits,
+        compute_metrics=trainer_token_accuracy_from_predictions
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
