@@ -75,8 +75,10 @@ def shuffle_batched(dataset, batch_size):
     idxs = torch.concat([idxs.flatten(), torch.arange(num_batches * batch_size, len(dataset))])
     return dataset.select(idxs)
 
-def add_special_time_tokens(dataset, tokenizer_len, special_tokens):
-    # Inserts special time tokens into the dataset and resizes tokenizer.
+def add_special_time_tokens(dataset, tokenizer, special_tokens, n_contexts, start_year=2010):
+    # Inserts special time tokens into the dataset. Assumes that the tokenizer was already resized.
+    tokenizer_len = tokenizer.vocab_size
+
     def insert_special_token_batched(examples):
         for k in examples.keys():
             examples[k] = torch.tensor(examples[k])
@@ -99,9 +101,26 @@ def add_special_time_tokens(dataset, tokenizer_len, special_tokens):
                 except TypeError:
                     pass
         return example
+
+    def insert_string_tokens(examples):
+        string_token_sequences = [tokenizer(f"year: {start_year + i} text: " )["input_ids"][:-1] for i in range(n_contexts)]
+        insert_lengths_per_sequence = [len(string_token_sequences[ts[0]]) for ts in examples["timestamps"]]
+        
+        examples["input_ids"] = [
+            (ids[0:1] + string_token_sequences[ts[0]] + ids[1:])
+            for ts, ids in zip(examples["timestamps"], examples["input_ids"])
+        ]
+        for k in ["attention_mask", "special_tokens_mask", "timestamps"]:
+            if k in examples.keys():
+                examples[k] = [
+                    (x[0:1] * insert_lengths_per_sequence[i])  + x
+                    for i, x in enumerate(examples[k])
+                ]
+        
+        return examples
     
     if special_tokens == "string":
-        raise NotImplementedError("Gotta do this!")
+        dataset = dataset.map(insert_string_tokens, batched=True)
     elif special_tokens == "special":
         try:
             dataset = dataset.map(insert_special_token_batched, batched=True)
@@ -179,61 +198,3 @@ def evaluate_mlm(model, dataset, data_collator,
         'accuracy': accuracy, 
         'mrr': mrr,
     }
-
-def evaluate_ssm(model, dataset, data_collator, 
-             no_cuda=False, batch_size=16, pad_id=-100):
-    """
-    Compute token-level F1 metrics.
-    """
-    if not no_cuda:
-        device = torch.device('cuda')
-    else:
-        device = torch.device('cpu')
-    model.eval().to(device)
-
-    total_f1 = 0
-    total_predictions = 0
-    correct_predictions = 0
-    num_iterations = math.ceil(len(dataset) / batch_size)
-
-    with torch.no_grad():
-        for data in tqdm.tqdm(make_batch_iterator(dataset, batch_size), total=num_iterations):
-            input = data_collator(data).to(device)
-            labels = input["labels"]
-
-            out = model(**input)
-            logits = out['logits']
-            idx_labels = torch.nonzero(labels != pad_id)
-            labels = labels[idx[:, 0], idx[:, 1]].to(device) ## is a list of length n
-            logits_masked = logits[idx[:, 0], idx[:, 1]].to(device) ## should now be of shape n x n_tokens
-            logits_values = logits[idx[:, 0], idx[:, 1], labels] ## list of length n
-
-            ranks = (logits_masked > logits_values.reshape(-1, 1)).sum(axis=1) + 1
-            total_ranks = torch.cat((total_ranks, ranks.cpu()))
-            total_mrr += (1/ranks).sum().item()
-    
-    accuracy = 100 * correct_predictions / total_predictions
-    mrr = total_mrr / total_predictions
-    return {
-        'perplexity': perplexity, 
-        'accuracy': accuracy, 
-        'mrr': mrr,
-    }
-
-def trainer_token_accuracy_from_predictions(eval_prediction: EvalPrediction) -> dict:
-    predictions = eval_prediction.predictions
-    label_ids = eval_prediction.label_ids
-    if isinstance(label_ids, tuple):
-        label_ids = label_ids[0]
-    mask = label_ids != -100
-    correct = np.logical_and((predictions == label_ids), mask)
-
-    total_tokens = np.sum(mask, axis=1)
-    total_correct = np.sum(correct, axis=1)
-    return (total_correct / total_tokens).mean()
-
-
-def trainer_get_predictions_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    if isinstance(logits, tuple):
-        logits = logits[0]
-    return torch.argmax(logits, dim=-1)

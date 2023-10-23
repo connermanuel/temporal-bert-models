@@ -2,6 +2,7 @@ import evaluate
 import numpy as np
 from transformers import EvalPrediction
 from typing import Dict, Callable
+import torch
 
 f1_metric = evaluate.load("f1")
 
@@ -57,3 +58,29 @@ def cls_metric_per_class_f1(eval_prediction: EvalPrediction):
     labels = eval_prediction.label_ids
     predictions = logits.argmax(axis=1)
     return f1_metric.compute(references=labels, predictions=predictions, average=None)["f1"].tolist()
+
+### SSM TRAINER STYLE METRICS
+
+def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dict:
+    predictions = eval_prediction.predictions
+    label_ids = eval_prediction.label_ids
+    if isinstance(label_ids, tuple):
+        label_ids = label_ids[0]
+
+    rows, positions = np.nonzero(predictions == 32098)
+    _, idxs = np.unique(rows, return_index=True)
+    prediction_row_end_idxs = positions[idxs]
+    label_row_end_idxs = np.nonzero(label_ids == 32098)[1]
+
+    mask = np.logical_and(label_ids != -100, label_ids != 32098)
+    correct = np.logical_and((predictions == label_ids), mask)
+
+    tokens_per_span = np.sum(mask, axis=1)
+    correct_per_span = np.sum(correct, axis=1)
+    return {"accuracy": (correct_per_span / tokens_per_span).mean()}
+
+
+def trainer_get_predictions_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    if isinstance(logits, tuple):
+        logits = logits[0]
+    return torch.argmax(logits, dim=-1)

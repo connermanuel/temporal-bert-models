@@ -7,13 +7,15 @@ from tempo_models.utils import to_list, to_tensor
 from tempo_models.models.bert.orthogonal_bert import TIMESTAMP_PAD
 import random
 
-
-def pad_column(seq_len: int, column: Iterable, pad_value: Union[int, float]):
-    return torch.tensor(
-        [to_list(value) + [pad_value] * (seq_len - len(value)) for value in column],
-        dtype=torch.long,
-    )
-
+def get_collator(task, tokenizer, **kwargs):
+    if task == "mlm":
+        return CollatorMLM(tokenizer, **kwargs)
+    elif task == "cls":
+        return CollatorCLS(tokenizer, **kwargs)
+    elif task == "ssm":
+        return CollatorSSM(tokenizer, **kwargs)
+    else:
+        raise ValueError(f"Sorry, we don't recognize the task {task}")
 
 @dataclass
 class CollatorMLM:
@@ -250,3 +252,10 @@ class CollatorSSM:
             ]
 
         return inputs, labels, timestamps, label_timestamps
+
+
+def pad_column(seq_len: int, column: Iterable, pad_value: Union[int, float]):
+    return torch.tensor(
+        [to_list(value) + [pad_value] * (seq_len - len(value)) for value in column],
+        dtype=torch.long,
+    )

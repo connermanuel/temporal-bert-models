@@ -68,6 +68,12 @@ data_args.add_argument(
     action="store_true",
 )
 data_args.add_argument(
+    "--start-year",
+    help="The year to start writing timestamps",
+    type=int,
+    default=2010,
+)
+data_args.add_argument(
     "--save-dataset",
     help="After processing, stores the dataset to this location.",
     default=None,

@@ -3,6 +3,7 @@ from arg_parser import parser
 from tempo_models.train import train
 
 if __name__ == "__main__":    
+    assert False
     train_args = parser.add_argument_group("Training arguments")
     train_args.add_argument(
         "--output-dir", 
@@ -31,6 +32,16 @@ if __name__ == "__main__":
         "--saves-per-epoch", 
         help="How many checkpoints are saved in an epoch. Defaults to 1.",
         type=int, default=1)
+    train_args.add_argument(
+        "--save-strategy", 
+        help="Whether to save by epoch or steps.",
+        type=str, 
+        choices=["epoch", "steps"],
+        default="epoch")
+    train_args.add_argument(
+        "--save-steps", 
+        help="After how many steps to save. Defaults to 500",
+        type=int, default=500)
     train_args.add_argument(
         "--auto-batch", help="Indicates that we should automatically find the best batch size.",
         action='store_true')

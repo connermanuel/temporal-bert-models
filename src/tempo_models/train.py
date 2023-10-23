@@ -6,7 +6,7 @@ import os
 import torch
 from datasets import load_from_disk
 from torch.cuda import empty_cache
-from transformers import T5ForConditionalGeneration, BertConfig, TrainingArguments
+from transformers import T5ForConditionalGeneration, BertConfig, TrainingArguments, Seq2SeqTrainingArguments, Trainer, Seq2SeqTrainer
 from transformers.models.bert.modeling_bert import (
     BertForMaskedLM,
     BertForSequenceClassification,
@@ -26,15 +26,12 @@ from tempo_models.models.t5.orthogonal_t5 import (
     OrthogonalT5Config    
 )
 from tempo_models.utils import (
-    NonShuffledTrainer,
     add_special_time_tokens,
     fetch_tokenizer,
-    shuffle_batched,
-    trainer_get_predictions_from_logits,
-    trainer_token_accuracy_from_predictions
+    shuffle_batched
 )
-from tempo_models.utils.collator import CollatorCLS, CollatorMLM, CollatorSSM
-
+from tempo_models.utils.metrics import ssm_metric_token_f1_from_predictions, trainer_get_predictions_from_logits
+from tempo_models.utils.collator import get_collator
 
 def train(args):
     ### Fix kwargs, create directories, and setup logging
@@ -52,13 +49,7 @@ def train(args):
     ### Prepare collator and tokenizer
     logging.info(f"Initializing model")
     tokenizer = fetch_tokenizer(args.model_architecture, args.time_token, args.n_contexts)
-
-    if args.task == "mlm":
-        collator = CollatorMLM(tokenizer)
-    elif args.task == "cls":
-        collator = CollatorCLS(tokenizer)
-    elif args.task == "ssm":
-        collator = CollatorSSM(tokenizer)
+    collator = get_collator(args.task, tokenizer)
 
     ### Load and process dataset
     logging.info(f"Loading dataset...")
@@ -73,7 +64,7 @@ def train(args):
         for key in dataset.keys():
             dataset[key] = shuffle_batched(dataset[key], args.batch_size)
         dataset = add_special_time_tokens(
-            dataset, tokenizer.vocab_size, args.time_token
+            dataset, tokenizer, args.time_token, args.n_contexts,args.start_year
         )
         if args.attention == "base" and "timestamps" in dataset["train"].features.keys():
             dataset = dataset.remove_columns("timestamps")
@@ -115,23 +106,24 @@ def train(args):
     
 
     ### Prepare training setup
-    save_strategy = "epoch"
-    save_steps = len(dataset["train"])
-    if args.saves_per_epoch > 1:
-        save_strategy = "steps"
-        save_steps = max(
-            len(dataset["train"]) // (args.batch_size * args.saves_per_epoch), 1
-        )
 
-    train_args = TrainingArguments(
+    TrainerClass = Trainer
+    ArgsClass = TrainingArguments
+    if args.task == "ssm":
+        TrainerClass = Seq2SeqTrainer
+        ArgsClass = Seq2SeqTrainingArguments
+
+    train_args = ArgsClass(
         output_dir=args.output_dir,
         overwrite_output_dir=True,
-        logging_strategy="epoch",
-        evaluation_strategy="epoch",
-        save_strategy=save_strategy,
-        save_steps=save_steps,
+        logging_strategy=args.save_strategy,
+        evaluation_strategy=args.save_strategy,
+        save_strategy=args.save_strategy,
+        save_steps=args.save_steps,
+        logging_steps=args.save_steps,
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
         auto_find_batch_size=args.auto_batch,
         gradient_accumulation_steps=args.grad_steps,
         fp16=args.use_fp16,
@@ -139,16 +131,22 @@ def train(args):
         num_train_epochs=args.num_epochs,
         max_steps=args.num_steps,
         remove_unused_columns=args.remove_unused_columns,
+        # logging_first_step=True
     )
 
-    trainer = NonShuffledTrainer(
+    
+
+    trainer = TrainerClass(
         model=model,
         args=train_args,
         train_dataset=dataset["train"],
-        eval_dataset=dataset["test"],
+        eval_dataset={
+            "templama_val": dataset["templama_val"],
+            # "upstream_val": dataset["upstream_val"],
+        },
         data_collator=collator,
         preprocess_logits_for_metrics=trainer_get_predictions_from_logits,
-        compute_metrics=trainer_token_accuracy_from_predictions
+        compute_metrics=ssm_metric_token_f1_from_predictions
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")
