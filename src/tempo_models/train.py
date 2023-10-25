@@ -113,6 +113,9 @@ def train(args):
         remove_unused_columns=args.remove_unused_columns,
     )
 
+    if args.task == "ssm":
+        train_args.predict_with_generate = True
+
     trainer = TrainerClass(
         model=model,
         args=train_args,

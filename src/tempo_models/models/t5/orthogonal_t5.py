@@ -1557,18 +1557,12 @@ class T5ForOrthogonalConditionalGeneration(T5OrthogonalPreTrainedModel):
         decoder_timestamps: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.BoolTensor] = None,
         head_mask: Optional[torch.FloatTensor] = None,
-        decoder_head_mask: Optional[torch.FloatTensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        label_timestamps: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = True,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        max_length: int = MAX_GENERATE_LENGTH,
+        **kwargs
     ):
         with torch.no_grad():
             if encoder_outputs is None:

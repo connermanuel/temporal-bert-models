@@ -65,14 +65,16 @@ def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dic
     label_ids = eval_prediction.label_ids
     if isinstance(label_ids, tuple):
         label_ids = label_ids[0]
+    num_rows = predictions.shape[0]
 
+    extra_end_tokens = (np.ones((predictions.shape[0], 1), dtype=int) * 32098)
+    predictions = np.hstack((predictions, extra_end_tokens))
     rows, positions = np.nonzero(predictions == 32098)
     _, idxs = np.unique(rows, return_index=True)
     prediction_row_end_idxs = positions[idxs]
     label_row_end_idxs = np.nonzero(label_ids == 32098)[1]
 
     f1_scores = []
-    num_rows = predictions.shape[0]
     for row in range(num_rows):
         prediction = predictions[row][1:prediction_row_end_idxs[row]]
         label = label_ids[row][1:label_row_end_idxs[row]]
