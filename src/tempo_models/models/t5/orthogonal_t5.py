@@ -1634,7 +1634,7 @@ class T5ForOrthogonalConditionalGeneration(T5OrthogonalPreTrainedModel):
 
                 if unfinished_sequences.max() == 0:
                     finished = True
-                if decoder_input_ids.shape[1] == MAX_GENERATE_LENGTH:
+                if decoder_input_ids.shape[1] == max_length:
                     finished = True
 
         return decoder_input_ids
