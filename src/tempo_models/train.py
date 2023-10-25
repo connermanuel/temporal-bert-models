@@ -126,7 +126,6 @@ def train(args):
             # "upstream_val": dataset["upstream_val"],
         },
         data_collator=collator,
-        preprocess_logits_for_metrics=trainer_get_predictions_from_logits,
         compute_metrics=ssm_metric_token_f1_from_predictions,
     )
 

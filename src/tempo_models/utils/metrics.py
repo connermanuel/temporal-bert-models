@@ -76,7 +76,7 @@ def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dic
 
     f1_scores = []
     for row in range(num_rows):
-        prediction = predictions[row][1:prediction_row_end_idxs[row]]
+        prediction = predictions[row][2:prediction_row_end_idxs[row]]
         label = label_ids[row][1:label_row_end_idxs[row]]
         overlap = np.intersect1d(prediction, label)
 
