@@ -41,8 +41,7 @@ from tempo_models.utils.metrics import (
     cls_metric_weighted_f1,
     mlm_metric_accuracy,
     mlm_metric_mrr,
-    ssm_metric_token_f1_from_predictions,
-    trainer_get_predictions_from_logits
+    ssm_metric_token_f1_from_predictions
 )
 from tempo_models.parser import get_parser
 from tempo_models.utils.collator import get_collator
@@ -110,7 +109,6 @@ def evaluate(args):
         eval_args.predict_with_generate = True
 
     metric_func = create_metric_func({})
-    preprocess_func = None
     if args.task == "mlm":
         metric_func = create_metric_func(
             {"mrr": mlm_metric_mrr, "accuracy": mlm_metric_accuracy}
@@ -125,7 +123,6 @@ def evaluate(args):
         )
     elif args.task == "ssm":
         metric_func = ssm_metric_token_f1_from_predictions
-        preprocess_func = trainer_get_predictions_from_logits
 
     results = {}
     for model_dir in tqdm.tqdm(model_dirs):
@@ -136,7 +133,6 @@ def evaluate(args):
                 model=model,
                 args=eval_args,
                 eval_dataset=dataset,
-                preprocess_logits_for_metrics=preprocess_func,
                 compute_metrics=metric_func,
                 data_collator=collator,
             )
