@@ -5,7 +5,7 @@ from datasets import load_from_disk
 from transformers import AutoTokenizer, BertForMaskedLM, T5ForConditionalGeneration
 from torch.utils.data import DataLoader
 from tempo_models.utils.collator import CollatorMLM, CollatorCLS, CollatorSSM
-from tempo_models.train import initialize_mlm_model, initialize_ssm_model
+from tempo_models.train import initialize_model
 
 @pytest.fixture(scope="session", autouse=True)
 def set_cuda_visibility():
@@ -72,7 +72,7 @@ def model_bert_base(device):
 
 @pytest.fixture()
 def model_bert_orth(device):
-    return initialize_mlm_model("bert", "orthogonal", 12).to(device)
+    return initialize_model("mlm", "bert", "orthogonal", 12).to(device)
 
 @pytest.fixture()
 def model_t5_base(device):
@@ -80,4 +80,4 @@ def model_t5_base(device):
 
 @pytest.fixture()
 def model_t5_orth(device):
-    return initialize_ssm_model("t5", "orthogonal", 11).to(device)
+    return initialize_model("ssm", "t5", "orthogonal", 11).to(device)

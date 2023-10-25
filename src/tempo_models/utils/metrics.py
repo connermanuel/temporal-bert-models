@@ -60,7 +60,6 @@ def cls_metric_per_class_f1(eval_prediction: EvalPrediction):
     return f1_metric.compute(references=labels, predictions=predictions, average=None)["f1"].tolist()
 
 ### SSM TRAINER STYLE METRICS
-
 def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dict:
     predictions = eval_prediction.predictions
     label_ids = eval_prediction.label_ids
@@ -72,12 +71,18 @@ def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dic
     prediction_row_end_idxs = positions[idxs]
     label_row_end_idxs = np.nonzero(label_ids == 32098)[1]
 
-    mask = np.logical_and(label_ids != -100, label_ids != 32098)
-    correct = np.logical_and((predictions == label_ids), mask)
+    f1_scores = []
+    num_rows = predictions.shape[0]
+    for row in range(num_rows):
+        prediction = predictions[row][1:prediction_row_end_idxs[row]]
+        label = label_ids[row][1:label_row_end_idxs[row]]
+        overlap = np.intersect1d(prediction, label)
 
-    tokens_per_span = np.sum(mask, axis=1)
-    correct_per_span = np.sum(correct, axis=1)
-    return {"accuracy": (correct_per_span / tokens_per_span).mean()}
+        f1 = (2 * len(overlap)) / (len(prediction) + len(label))
+        f1_scores.append(f1)
+    
+
+    return {"f1": np.mean(f1_scores)}
 
 
 def trainer_get_predictions_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:

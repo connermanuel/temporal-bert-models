@@ -17,7 +17,7 @@ TIME_TOKENS = None
 # model = T5ForConditionalGeneration.from_pretrained("t5-base")
 tokenizer = AutoTokenizer.from_pretrained("t5-base")
 collator = CollatorSSM(tokenizer)
-dataset = load_from_disk("/local/scratch/shared/groupdir2/temporal_kb/data/wmt_templama")
+dataset = load_from_disk("/data/")
 dataset = dataset["templama_val"]
 
 
