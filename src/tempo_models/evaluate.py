@@ -77,6 +77,9 @@ def evaluate(args):
         args.start_year,
         resize_model = False
     )
+    
+    if args.attention == "base" and "timestamps" in dataset.features.keys():
+        dataset = dataset.remove_columns("timestamps")
 
     ### Prepare evaluation setup
     if args.checkpoint_dir:
