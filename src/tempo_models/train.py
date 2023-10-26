@@ -62,17 +62,15 @@ def train(args):
     logging.info(f"Processing the dataset")
     for key in dataset.keys():
         dataset[key] = shuffle_batched(dataset[key], args.batch_size)
-    if args.attention == "base" and "timestamps" in dataset["train"].features.keys():
-        dataset = dataset.remove_columns("timestamps")
 
     model = initialize_model(
         args.task,
         args.model_architecture,
         args.attention,
-        args.pretrain_dir,
-        args.num_labels,
         args.n_contexts,
         args.alpha,
+        args.pretrain_dir,
+        args.num_labels,
     )
 
     ### Fix ds, tokenizer, and model for time token
@@ -85,6 +83,9 @@ def train(args):
         args.n_contexts,
         args.start_year,
     )
+    
+    if args.attention == "base" and "timestamps" in dataset["train"].features.keys():
+        dataset = dataset.remove_columns("timestamps")
 
     ### Prepare training setup
     TrainerClass = Trainer
