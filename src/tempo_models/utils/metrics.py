@@ -85,10 +85,9 @@ def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction, ids=No
         f1_scores.append(f1)
     
     if ids and len(ids) == len(f1_scores):
-        print("Filtering!!!!")
         score_per_id = defaultdict(float)
         for id, score in zip(ids, f1_scores):
-            score_per_id[id] = max(score_per_id), score
+            score_per_id[id] = max(score_per_id[id], score)
         f1_scores = list(score_per_id.values())
 
     return {"f1": np.mean(f1_scores)}
