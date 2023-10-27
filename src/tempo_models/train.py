@@ -126,7 +126,7 @@ def train(args):
             # "upstream_val": dataset["upstream_val"],
         },
         data_collator=collator,
-        compute_metrics=ssm_metric_token_f1_from_predictions,
+        compute_metrics=lambda v: ssm_metric_token_f1_from_predictions(v, dataset["templama_val"]["id"]),
     )
 
     logging.info(f"Now training for {args.num_epochs} epochs.")

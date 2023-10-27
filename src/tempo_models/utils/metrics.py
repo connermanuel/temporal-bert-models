@@ -3,6 +3,7 @@ import numpy as np
 from transformers import EvalPrediction
 from typing import Dict, Callable
 import torch
+from collections import defaultdict
 
 f1_metric = evaluate.load("f1")
 
@@ -60,7 +61,7 @@ def cls_metric_per_class_f1(eval_prediction: EvalPrediction):
     return f1_metric.compute(references=labels, predictions=predictions, average=None)["f1"].tolist()
 
 ### SSM TRAINER STYLE METRICS
-def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dict:
+def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction, ids=None) -> dict:
     predictions = eval_prediction.predictions
     label_ids = eval_prediction.label_ids
     if isinstance(label_ids, tuple):
@@ -83,6 +84,12 @@ def ssm_metric_token_f1_from_predictions(eval_prediction: EvalPrediction) -> dic
         f1 = (2 * len(overlap)) / (len(prediction) + len(label))
         f1_scores.append(f1)
     
+    if ids and len(ids) == len(f1_scores):
+        print("Filtering!!!!")
+        score_per_id = defaultdict(float)
+        for id, score in zip(ids, f1_scores):
+            score_per_id[id] = max(score_per_id), score
+        f1_scores = list(score_per_id.values())
 
     return {"f1": np.mean(f1_scores)}
 

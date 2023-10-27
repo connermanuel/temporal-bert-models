@@ -125,7 +125,7 @@ def evaluate(args):
             }
         )
     elif args.task == "ssm":
-        metric_func = ssm_metric_token_f1_from_predictions
+        metric_func = lambda v: ssm_metric_token_f1_from_predictions(v, dataset["id"])
 
     results = {}
     for model_dir in tqdm.tqdm(model_dirs):
